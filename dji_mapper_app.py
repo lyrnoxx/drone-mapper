@@ -12,7 +12,7 @@ sys.path.append(os.getcwd())
 
 from backend.mapper_service import MapperService
 
-st.set_page_config(page_title="DJI Mapper", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Drone Mapper", layout="wide", initial_sidebar_state="collapsed")
 
 # Custom CSS for UI Tweaks
 st.markdown("""
@@ -40,7 +40,7 @@ def get_service():
 
 service = get_service()
 
-st.title("DJI Mapper Engine")
+st.title("Drone Mapper Engine")
 
 # Sidebar for controls
 with st.sidebar:
