@@ -2,12 +2,14 @@ import cv2
 import numpy as np
 import threading
 import re
-import math
-import requests
-import io
+import logging
 import os
 from pyproj import Proj
 from scipy.spatial.transform import Rotation as R
+from scipy.sparse import lil_matrix
+from scipy.sparse.linalg import lsqr
+
+logger = logging.getLogger(__name__)
 
 # ================= POSE EXTRACTION FROM EXIF =================
 class PoseExtractor:
@@ -178,194 +180,357 @@ class PoseExtractor:
             return None
 
 
-# ================= SATELLITE REGISTRATION =================
-class SatelliteManager:
-    """Fetches and manages geo-referenced satellite tiles for ground truth alignment."""
-    def __init__(self, zoom=19):
-        self.zoom = zoom
-        self.tiles = {} # (x, y) -> image
-        self.lock = threading.Lock()
-        
-    def _get_tile_indices(self, lat, lon):
-        n = 2.0 ** self.zoom
-        x = int((lon + 180.0) / 360.0 * n)
-        lat_rad = math.radians(lat)
-        y = int((1.0 - math.log(math.tan(lat_rad) + (1.0 / math.cos(lat_rad))) / math.pi) / 2.0 * n)
-        return x, y
-
-    def _get_tile_extent(self, x, y):
-        """Calculate the lat/lon extent of a tile."""
-        n = 2.0 ** self.zoom
-        lon_left = x / n * 360.0 - 180.0
-        lon_right = (x + 1) / n * 360.0 - 180.0
-        
-        def y_to_lat(y_idx):
-            lat_rad = math.atan(math.sinh(math.pi * (1 - 2 * y_idx / n)))
-            return math.degrees(lat_rad)
-            
-        lat_top = y_to_lat(y)
-        lat_bottom = y_to_lat(y + 1)
-        
-        return (lat_bottom, lat_top), (lon_left, lon_right)
-
-    def get_reference_image(self, lat, lon, proj, origin_x, origin_y):
+# ================= POSE GRAPH OPTIMIZER =================
+class PoseGraphOptimizer:
+    """
+    Translation-only block adjustment via sparse least-squares.
+    
+    Matches SIFT features between overlapping frame pairs to compute
+    relative translation constraints, then jointly solves for corrected
+    positions that satisfy both GPS priors and pairwise constraints.
+    
+    Formulation:
+        min_{t_i} sum_i w_gps * ||t_i - t_i^gps||^2
+                + sum_{(i,j)} w_match * ||t_j - t_i - delta_ij||^2
+    
+    This reduces to a sparse linear system Ax = b, solved via LSQR.
+    Rotations from the DJI IMU are trusted and not adjusted.
+    """
+    
+    def __init__(self, w_gps=1.0, w_match=2.0, min_matches=15, iou_threshold=0.10):
         """
-        Fetch a 3x3 grid of satellite tiles and stitch them.
+        Args:
+            w_gps: Weight for GPS position priors
+            w_match: Weight for pairwise feature-match constraints  
+            min_matches: Minimum good SIFT matches to accept a pair
+            iou_threshold: Minimum IoU to consider two frames as overlapping
         """
-        center_tx, center_ty = self._get_tile_indices(lat, lon)
+        self.w_gps = w_gps
+        self.w_match = w_match
+        self.min_matches = min_matches
+        self.iou_threshold = iou_threshold
         
-        # Grid range
-        tiles_list = []
-        for dy in [-1, 0, 1]:
-            row = []
-            for dx in [-1, 0, 1]:
-                tx, ty = center_tx + dx, center_ty + dy
-                key = (tx, ty)
-                
-                with self.lock:
-                    if key not in self.tiles:
-                        url = f"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{self.zoom}/{ty}/{tx}"
-                        try:
-                            response = requests.get(url, timeout=5)
-                            if response.status_code == 200:
-                                img_arr = np.frombuffer(response.content, np.uint8)
-                                self.tiles[key] = cv2.imdecode(img_arr, cv2.IMREAD_COLOR)
-                                print(f"Downloaded Satellite Tile {key}")
-                            else:
-                                self.tiles[key] = np.zeros((256, 256, 3), np.uint8) # Placeholder
-                        except Exception:
-                            self.tiles[key] = np.zeros((256, 256, 3), np.uint8)
-                    
-                    row.append(self.tiles[key])
-            tiles_list.append(row)
-            
-        # Stitch
-        stitched = cv2.vconcat([cv2.hconcat(r) for r in tiles_list])
+        # Feature detector
+        self.sift = cv2.SIFT_create(nfeatures=1000)
+        self.flann = cv2.FlannBasedMatcher(
+            dict(algorithm=1, trees=5), dict(checks=50)
+        )
         
-        # Get extent of the grid
-        # Leftmost lon, bottommost lat (min) to Rightmost lon, topmost lat (max)
-        _, (lon_min, _) = self._get_tile_extent(center_tx - 1, center_ty)
-        _, (_, lon_max) = self._get_tile_extent(center_tx + 1, center_ty)
-        (lat_min, _), _ = self._get_tile_extent(center_tx, center_ty + 1)
-        (_, lat_max), _ = self._get_tile_extent(center_tx, center_ty - 1)
+        # Accumulated data
+        self.frames = []       # List of {gray, pose, gps_xy, corners, keypoints, descriptors}
+        self.edges = []        # List of (i, j, delta_xy) pairwise constraints
+        self.corrections = []  # Current correction offsets [dx, dy] per frame
         
-        # Project corners
-        mx_min, my_min = proj(lon_min, lat_min)
-        mx_max, my_max = proj(lon_max, lat_max)
+        self._dirty = False    # Whether re-solve is needed
+    
+    def _compute_ground_corners(self, pose, K):
+        """Compute ground-plane footprint corners from pose + intrinsics."""
+        # Approximate using a standard 4000x3000 frame
+        h, w = 3000, 4000
+        u = np.array([0, w-1, w-1, 0], np.float32)
+        v = np.array([0, 0, h-1, h-1], np.float32)
         
-        lx_min, ly_min = mx_min - origin_x, my_min - origin_y
-        lx_max, ly_max = mx_max - origin_x, my_max - origin_y
-        
-        return stitched, [lx_min, ly_min, lx_max, ly_max]
-
-class PoseRefiner:
-    """Aligns drone imagery to satellite baseline using feature matching."""
-    def __init__(self):
-        self.sift = cv2.SIFT_create()
-        self.flann = cv2.FlannBasedMatcher(dict(algorithm=1, trees=5), dict(checks=50))
-        
-    def refine(self, frame, initial_pose, sat_img, sat_extent, K):
-        """
-        initial_pose: 4x4 rough matrix (drone's initial estimate)
-        sat_img: Satellite ground truth image
-        sat_extent: [xmin, ymin, xmax, ymax] in metric
-        K: Camera intrinsics
-        """
-        if sat_img is None:
-            return initial_pose, 0.0
-            
-        # 1. Feature Matching (as before)
-        gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        gray_sat = cv2.cvtColor(sat_img, cv2.COLOR_BGR2GRAY)
-        kp_f, des_f = self.sift.detectAndCompute(gray_frame, None)
-        kp_s, des_s = self.sift.detectAndCompute(gray_sat, None)
-        
-        if des_f is None or des_s is None:
-            return initial_pose, 0.0
-            
-        matches = self.flann.knnMatch(des_f, des_s, k=2)
-        good = [m for m, n in matches if m.distance < 0.7 * n.distance]
-        
-        if len(good) < 20:
-            return initial_pose, 0.0
-            
-        pts_f_px = np.float32([kp_f[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
-        pts_s_px = np.float32([kp_s[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
-        
-        # 2. Convert Drone pixels to Rough Ground Coordinates (Metric)
-        # Use simple unprojection to ground plane at initial_pose
         fx, fy = K[0, 0], K[1, 1]
         cx, cy = K[0, 2], K[1, 2]
-        u, v = pts_f_px[:, 0, 0], pts_f_px[:, 0, 1]
         x_cam = (u - cx) / fx
         y_cam = (v - cy) / fy
         
         ray_cam = np.stack([x_cam, y_cam, np.ones_like(x_cam)], axis=1)
         ray_cam /= np.linalg.norm(ray_cam, axis=1, keepdims=True)
         
-        R_initial = initial_pose[:3, :3]
-        T_initial = initial_pose[:3, 3]
-        ray_world = (R_initial @ ray_cam.T).T
+        Rot = pose[:3, :3]
+        t = pose[:3, 3]
+        ray_world = (Rot @ ray_cam.T).T
         
-        # Intersection with plane z=0 (NED frame, camera is at T_initial[2] which is negative altitude)
-        lams = -T_initial[2] / ray_world[:, 2]
-        pts_drone_metric = T_initial + lams[:, None] * ray_world
-        pts_drone_metric = pts_drone_metric[:, :2] # X, Y only
+        lams = -t[2] / ray_world[:, 2]
+        if np.any(lams < 0):
+            return None
         
-        # 3. Convert Satellite pixels to Ground Coordinates (Metric)
-        sx_min, sy_min, sx_max, sy_max = sat_extent
-        sw, sh = gray_sat.shape[1], gray_sat.shape[0]
-        pts_sat_metric = np.zeros_like(pts_drone_metric)
-        pts_sat_metric[:, 0] = sx_min + (pts_s_px[:, 0, 0] / sw) * (sx_max - sx_min)
-        pts_sat_metric[:, 1] = sy_max - (pts_s_px[:, 0, 1] / sh) * (sy_max - sy_min) # Y inverted
+        pts_world = t + lams[:, None] * ray_world
+        # Map to display frame: East = +X, North = +Y
+        corners = np.zeros((4, 2), np.float32)
+        corners[:, 0] = pts_world[:, 1]   # Easting
+        corners[:, 1] = -pts_world[:, 0]  # -Northing (north up)
+        return corners
+    
+    def _compute_iou(self, corners1, corners2):
+        """Fast rasterized IoU between two quadrilaterals."""
+        if corners1 is None or corners2 is None:
+            return 0.0
+        try:
+            all_pts = np.vstack([corners1, corners2])
+            xmin, ymin = all_pts.min(axis=0)
+            xmax, ymax = all_pts.max(axis=0)
+            calc_res = 0.5  # coarser for speed
+            w = int((xmax - xmin) / calc_res) + 2
+            h = int((ymax - ymin) / calc_res) + 2
+            if w > 5000 or h > 5000:
+                return 0.0
+            mask1 = np.zeros((h, w), dtype=np.uint8)
+            mask2 = np.zeros((h, w), dtype=np.uint8)
+            p1 = ((corners1 - [xmin, ymin]) / calc_res).astype(np.int32)
+            p2 = ((corners2 - [xmin, ymin]) / calc_res).astype(np.int32)
+            cv2.fillPoly(mask1, [p1], 255)
+            cv2.fillPoly(mask2, [p2], 255)
+            inter = cv2.countNonZero(cv2.bitwise_and(mask1, mask2))
+            union = cv2.countNonZero(cv2.bitwise_or(mask1, mask2))
+            return inter / union if union > 0 else 0.0
+        except Exception:
+            return 0.0
+    
+    def _match_pair(self, idx_i, idx_j, K):
+        """
+        Match SIFT features between frames i and j.
+        If enough matches, compute the relative translation delta_ij
+        by unprojecting matched pixels to the ground plane.
+        
+        Returns (delta_x, delta_y, n_inliers) or None if matching fails.
+        """
+        fi, fj = self.frames[idx_i], self.frames[idx_j]
+        des_i, des_j = fi['descriptors'], fj['descriptors']
+        
+        if des_i is None or des_j is None:
+            return None
+        if len(des_i) < 2 or len(des_j) < 2:
+            return None
         
         try:
-            # 4. Center coordinates around Drone to avoid Origin-Rotation issues
-            centroid_drone = np.mean(pts_drone_metric, axis=0)
-            A_centered = pts_drone_metric - centroid_drone
-            B_centered = pts_sat_metric - centroid_drone
+            raw_matches = self.flann.knnMatch(des_i, des_j, k=2)
+        except cv2.error:
+            return None
+        
+        # Lowe's ratio test
+        good = []
+        for pair in raw_matches:
+            if len(pair) == 2:
+                m, n = pair
+                if m.distance < 0.75 * n.distance:
+                    good.append(m)
+        
+        if len(good) < self.min_matches:
+            return None
+        
+        # Unproject matched keypoints to ground plane for both frames
+        fx, fy = K[0, 0], K[1, 1]
+        cx, cy = K[0, 2], K[1, 2]
+        
+        def unproject_to_ground(kps, matches_indices, pose):
+            pts_px = np.float32([kps[m].pt for m in matches_indices])
+            x_cam = (pts_px[:, 0] - cx) / fx
+            y_cam = (pts_px[:, 1] - cy) / fy
+            ray_cam = np.stack([x_cam, y_cam, np.ones_like(x_cam)], axis=1)
+            ray_cam /= np.linalg.norm(ray_cam, axis=1, keepdims=True)
+            Rot = pose[:3, :3]
+            t = pose[:3, 3]
+            ray_world = (Rot @ ray_cam.T).T
+            lams = -t[2] / ray_world[:, 2]
+            # Filter out invalid rays
+            valid = lams > 0
+            pts_world = t + lams[:, None] * ray_world
+            return pts_world[:, :2], valid  # NED XY
+        
+        query_indices = [m.queryIdx for m in good]
+        train_indices = [m.trainIdx for m in good]
+        
+        pts_i, valid_i = unproject_to_ground(fi['keypoints'], query_indices, fi['pose'])
+        pts_j, valid_j = unproject_to_ground(fj['keypoints'], train_indices, fj['pose'])
+        
+        valid = valid_i & valid_j
+        pts_i, pts_j = pts_i[valid], pts_j[valid]
+        
+        if len(pts_i) < self.min_matches:
+            return None
+        
+        # The relative translation measured by the matches:
+        # If frames were perfectly placed, pts_i[k] == pts_j[k] for all k.
+        # The median difference gives a robust estimate of the relative offset.
+        deltas = pts_j - pts_i  # How much j needs to shift relative to i
+        
+        # Use RANSAC-like robust estimation: median
+        delta_xy = np.median(deltas, axis=0)
+        
+        # Compute inlier count (within 2m of median)
+        residuals = np.linalg.norm(deltas - delta_xy, axis=1)
+        n_inliers = int(np.sum(residuals < 2.0))
+        
+        if n_inliers < self.min_matches:
+            return None
+        
+        # Refine with inliers only
+        inlier_mask = residuals < 2.0
+        delta_xy = np.mean(deltas[inlier_mask], axis=0)
+        
+        return delta_xy[0], delta_xy[1], n_inliers
+    
+    def add_frame(self, gray, pose, K):
+        """
+        Add a new frame to the pose graph.
+        
+        Args:
+            gray: Grayscale image (for SIFT)
+            pose: 4x4 pose matrix (from metadata)
+            K: 3x3 camera intrinsics
             
-            # 5. Solve for 2D Rigid/Similarity Transform using RANSAC
-            # estimateAffinePartial2D finds Translation + Rotation + (Uniform) Scale
-            M, inliers = cv2.estimateAffinePartial2D(A_centered, B_centered, method=cv2.RANSAC)
-            
-            if M is None or np.sum(inliers) < 10:
-                return initial_pose, 0.0
-            
-            # M is [[cos, -sin, tx], [sin, cos, ty]]
-            R_2d = M[:, 0:2]
-            t_2d = M[:, 2] # This is the correction RELATIVE to the drone's centroid
-            
-            # Safety Check: Discard extreme jumps (> 100m)
-            dist_err = np.linalg.norm(t_2d)
-            if dist_err > 100.0:
-                print(f"Refinement Ignored: Extreme offset detected ({dist_err:.1f}m)")
-                return initial_pose, 0.0
-            
-            # 6. Apply correction LOCALLY
-            # New Pose = Translate Correction * Rotate Correction (at drone) * Old Pose
-            # But simpler: Update t and R directly 
-            
-            # Translation update
-            refined_pose = initial_pose.copy()
-            refined_pose[0, 3] += t_2d[0]
-            refined_pose[1, 3] += t_2d[1]
-            
-            # Rotation update (Compass/Yaw fix)
-            # Apply R_2d only to the XY components of the rotation
-            R_old = initial_pose[:3, :3]
-            # Convert R_2d to 3x3
-            R_3d = np.eye(3)
-            R_3d[0:2, 0:2] = R_2d
-            
-            refined_pose[:3, :3] = R_3d @ R_old
-            
-            print(f"Refinement Success: {np.sum(inliers)} inliers. Offset: {dist_err:.2f}m")
-            return refined_pose, float(np.sum(inliers))
-            
-        except Exception as e:
-            print(f"Refinement Solver Error: {e}")
-            return initial_pose, 0.0
+        Returns:
+            corrected_pose: The pose matrix with translation correction applied
+        """
+        idx = len(self.frames)
+        gps_xy = pose[:3, 3][:2].copy()  # NED X, Y from GPS
+        corners = self._compute_ground_corners(pose, K)
+        
+        # Detect features
+        kp, des = self.sift.detectAndCompute(gray, None)
+        
+        self.frames.append({
+            'gray': None,  # Don't store images to save memory
+            'pose': pose.copy(),
+            'gps_xy': gps_xy,
+            'corners': corners,
+            'keypoints': kp,
+            'descriptors': des,
+        })
+        self.corrections.append(np.zeros(2))  # Initial correction = 0
+        
+        # Find overlapping previous frames and match
+        n_new_edges = 0
+        # Check recent frames (sliding window) + any with IoU overlap
+        candidates = []
+        for j in range(max(0, idx - 10), idx):  # Last 10 frames
+            candidates.append(j)
+        
+        # Also check by IoU for non-sequential overlaps
+        for j in range(max(0, idx - 10)):
+            if corners is not None and self.frames[j]['corners'] is not None:
+                iou = self._compute_iou(corners, self.frames[j]['corners'])
+                if iou > self.iou_threshold:
+                    candidates.append(j)
+        
+        candidates = list(set(candidates))
+        
+        for j in candidates:
+            result = self._match_pair(j, idx, K)
+            if result is not None:
+                dx, dy, n_inliers = result
+                self.edges.append((j, idx, np.array([dx, dy])))
+                n_new_edges += 1
+                logger.info(f"PoseGraph: Edge ({j},{idx}): delta=({dx:.2f},{dy:.2f})m, {n_inliers} inliers")
+        
+        # Re-solve if we have new edges
+        if n_new_edges > 0:
+            self._solve()
+            self._dirty = True
+        
+        # Return corrected pose
+        return self.get_corrected_pose(idx)
+    
+    def _solve(self):
+        """
+        Solve the sparse linear system for optimal translations.
+        
+        Variables: [dx_0, dy_0, dx_1, dy_1, ..., dx_n, dy_n] (2 per frame)
+        
+        Equations:
+        - GPS prior for each frame i:   w_gps * (t_i + correction_i) = w_gps * gps_i
+          => w_gps * correction_i = w_gps * 0  (correction is relative to GPS)
+          
+        - Pairwise constraint (i, j):  w_match * ((t_j + corr_j) - (t_i + corr_i)) = w_match * (t_j - t_i + delta_ij)
+          => w_match * (corr_j - corr_i) = w_match * delta_ij
+          where delta_ij is the measured relative translation from features.
+          
+          But delta_ij measures how the ground points from i and j disagree.
+          More precisely: delta_ij = (expected_offset) - (actual_offset_from_GPS)
+          So: w_match * (corr_j - corr_i) = w_match * (delta_ij - (gps_j - gps_i))
+          Wait — let me re-derive.
+          
+          From feature matching, pts_j - pts_i gives how much j's ground projection
+          differs from i's for the same 3D point. If GPS were perfect, this should be 0.
+          So delta_ij IS the error. We want:
+            (gps_j + corr_j) - (gps_i + corr_i) = (gps_j - gps_i) - delta_ij
+          => corr_j - corr_i = -delta_ij
+        """
+        n = len(self.frames)
+        if n == 0:
+            return
+        
+        n_gps = n           # One GPS prior per frame
+        n_edges = len(self.edges)
+        n_rows = (n_gps + n_edges) * 2  # x2 for X and Y
+        n_cols = n * 2
+        
+        A = lil_matrix((n_rows, n_cols), dtype=np.float64)
+        b = np.zeros(n_rows, dtype=np.float64)
+        
+        row = 0
+        
+        # GPS priors: correction_i should be 0 (stay near GPS)
+        for i in range(n):
+            # X component
+            A[row, 2*i] = self.w_gps
+            b[row] = 0.0  # correction = 0 means stay at GPS
+            row += 1
+            # Y component
+            A[row, 2*i + 1] = self.w_gps
+            b[row] = 0.0
+            row += 1
+        
+        # Pairwise constraints: corr_j - corr_i = -delta_ij
+        for (i, j, delta_ij) in self.edges:
+            # X component
+            A[row, 2*j] = self.w_match
+            A[row, 2*i] = -self.w_match
+            b[row] = self.w_match * (-delta_ij[0])
+            row += 1
+            # Y component
+            A[row, 2*j + 1] = self.w_match
+            A[row, 2*i + 1] = -self.w_match
+            b[row] = self.w_match * (-delta_ij[1])
+            row += 1
+        
+        # Solve via LSQR (works great for sparse least-squares)
+        A_csr = A.tocsr()
+        result_x = lsqr(A_csr, b)
+        x = result_x[0]
+        
+        # Extract corrections
+        for i in range(n):
+            self.corrections[i] = np.array([x[2*i], x[2*i + 1]])
+        
+        # Log stats
+        max_corr = max(np.linalg.norm(c) for c in self.corrections) if n > 0 else 0
+        logger.info(f"PoseGraph solved: {n} frames, {n_edges} edges, max correction={max_corr:.3f}m")
+        print(f"PoseGraph solved: {n} frames, {n_edges} edges, max correction={max_corr:.3f}m")
+    
+    def get_corrected_pose(self, idx):
+        """Return pose matrix with translation correction applied."""
+        pose = self.frames[idx]['pose'].copy()
+        corr = self.corrections[idx]
+        pose[0, 3] += corr[0]  # NED X (North)
+        pose[1, 3] += corr[1]  # NED Y (East)
+        return pose
+    
+    def get_all_corrections(self):
+        """Return list of (idx, correction_magnitude) for all frames."""
+        return [(i, np.linalg.norm(c)) for i, c in enumerate(self.corrections)]
+    
+    def get_stats(self):
+        """Return optimizer statistics for display."""
+        n = len(self.frames)
+        if n == 0:
+            return {'n_frames': 0, 'n_edges': 0, 'max_correction': 0.0, 'avg_correction': 0.0}
+        magnitudes = [np.linalg.norm(c) for c in self.corrections]
+        return {
+            'n_frames': n,
+            'n_edges': len(self.edges),
+            'max_correction': max(magnitudes),
+            'avg_correction': np.mean(magnitudes),
+        }
+    
+    def reset(self):
+        """Clear all accumulated data."""
+        self.frames.clear()
+        self.edges.clear()
+        self.corrections.clear()
+        self._dirty = False
 
 
 # ================= MAPPER ENGINE =================
@@ -389,11 +554,9 @@ class MultiBandMap2D:
         self.paused = False
         self.last_pts_metric = None # For IoU calculation
         
-        # Satellite Registration
-        self.sat_manager = SatelliteManager(zoom=18)
-        self.pose_refiner = PoseRefiner()
-        self.enable_refinement = False
-        self.pose_extractor_ref = None # Set this to the active PoseExtractor
+        # Flight path tracking: list of (east_metric, north_metric) camera positions
+        self.flight_path = []  # [(map_x, map_y), ...] in metric display coords
+        self.frame_count = 0
 
     def calculate_gsd(self, altitude, focal_len_mm, sensor_width_mm, img_width_px):
         """
@@ -475,7 +638,7 @@ class MultiBandMap2D:
         pyr.append(cur)
         return pyr
 
-    def feed(self, frame, pose_matrix, camera_matrix, plane_height=0.0, metadata=None):
+    def feed(self, frame, pose_matrix, camera_matrix, plane_height=0.0):
         """
         Add a new frame to the map.
         
@@ -484,7 +647,6 @@ class MultiBandMap2D:
             pose_matrix: 4x4 camera pose in NED frame (Z points down)
             camera_matrix: 3x3 camera intrinsic matrix
             plane_height: Z-coordinate of ground plane (0 for ground level)
-            metadata: DJI XMP metadata for satellite registration
         
         Note: In NED frame, altitude should be NEGATIVE (below origin).
         """
@@ -492,19 +654,6 @@ class MultiBandMap2D:
             return False
             
         h, w = frame.shape[:2]
-        
-        # Satellite Refinement
-        if self.enable_refinement and metadata is not None:
-            lat = metadata.get('GPSLatitude')
-            lon = metadata.get('GPSLongitude')
-            if lat and lon:
-                # Fetch reference tile
-                sat_img, sat_extent = self.sat_manager.get_reference_image(
-                    lat, lon, self.pose_extractor_ref.proj, 
-                    self.pose_extractor_ref.origin_x, self.pose_extractor_ref.origin_y
-                )
-                # Refine pose
-                pose_matrix, _ = self.pose_refiner.refine(frame, pose_matrix, sat_img, sat_extent, camera_matrix)
 
         R = pose_matrix[:3, :3]  # Rotation matrix
         t = pose_matrix[:3, 3]   # Translation vector (camera position)
@@ -552,6 +701,12 @@ class MultiBandMap2D:
         pts_metric = np.zeros((4, 2), np.float32)
         pts_metric[:, 0] = pts_world[:, 1]  # Easting
         pts_metric[:, 1] = -pts_world[:, 0] # -Northing
+        
+        # Track camera position for flight path overlay
+        cam_map_x = t[1]   # Easting
+        cam_map_y = -t[0]  # -Northing
+        self.flight_path.append((cam_map_x, cam_map_y))
+        self.frame_count += 1
         
         # Calculate coverage area
         xmin, xmax = pts_metric[:, 0].min(), pts_metric[:, 0].max()
@@ -662,12 +817,13 @@ class MultiBandMap2D:
         
         return True
 
-    def render_map(self, quality_lvl=0):
+    def render_map(self, quality_lvl=0, show_flight_path=False):
         """
         Render the complete map by reconstructing from pyramids.
         
         Args:
             quality_lvl: pyramid level to render (0 = full quality)
+            show_flight_path: if True, draw flight path overlay on the map
         """
         with self.lock:
             if not self.tiles:
@@ -695,4 +851,55 @@ class MultiBandMap2D:
                 oy = (ty - miny) * ts
                 canvas[oy:oy + cur.shape[0], ox:ox + cur.shape[1]] = np.clip(cur, 0, 255)
         
+            # Draw flight path overlay
+            if show_flight_path and len(self.flight_path) >= 2:
+                scale = 2 ** quality_lvl
+                # Convert metric positions to canvas pixel positions
+                # Tile origin in metric space
+                origin_x_metric = minx * self.tile_size * self.resolution
+                origin_y_metric = miny * self.tile_size * self.resolution
+                
+                path_pts = []
+                for (mx, my) in self.flight_path:
+                    px = int((mx - origin_x_metric) / self.resolution / scale)
+                    py = int((my - origin_y_metric) / self.resolution / scale)
+                    path_pts.append((px, py))
+                
+                # Draw path lines
+                for i in range(1, len(path_pts)):
+                    cv2.line(canvas, path_pts[i-1], path_pts[i], (0, 200, 255), 2, cv2.LINE_AA)
+                
+                # Draw waypoints
+                for i, pt in enumerate(path_pts):
+                    # Start = green, end = red, middle = cyan
+                    if i == 0:
+                        color = (0, 255, 0)
+                        radius = 8
+                    elif i == len(path_pts) - 1:
+                        color = (0, 0, 255)
+                        radius = 8
+                    else:
+                        color = (255, 255, 0)
+                        radius = 4
+                    cv2.circle(canvas, pt, radius, color, -1, cv2.LINE_AA)
+                    cv2.circle(canvas, pt, radius, (0, 0, 0), 1, cv2.LINE_AA)  # Black border
+                
+                # Label start and end
+                if path_pts:
+                    cv2.putText(canvas, "S", (path_pts[0][0]+10, path_pts[0][1]-5),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2, cv2.LINE_AA)
+                    cv2.putText(canvas, "E", (path_pts[-1][0]+10, path_pts[-1][1]-5),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2, cv2.LINE_AA)
+        
         return canvas
+    
+    def get_memory_usage(self):
+        """Estimate memory usage of tile data in bytes."""
+        total = 0
+        with self.lock:
+            for key, tile_data in self.tiles.items():
+                for arr in tile_data['pyr']:
+                    total += arr.nbytes
+                for arr in tile_data['w']:
+                    total += arr.nbytes
+        return total

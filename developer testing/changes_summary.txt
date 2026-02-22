@@ -1,0 +1,51 @@
+SUMMARY OF CHANGES TO bserver_imageonly.py
+
+1. EXIF EXTRACTION (PoseExtractor.get_meta)
+------------------------------------------
+Changed field extraction to be case-insensitive to handle different DJI firmware/metadata versions (e.g., GPSLatitude vs GpsLatitude).
+
+Code change in extract_value inner function:
+- pattern = rf'drone-dji:{field_name}="([^"]*)"'
+- match = re.search(pattern, xmp_data, re.IGNORECASE)  # Added re.IGNORECASE
+
+2. ROTATION MATH (PoseExtractor.compute_camera_pose)
+--------------------------------------------------
+Completely reworked the rotation logic to include a base transformation and correct the coordinate frame mapping.
+
+Major updates:
+- Added a 3x3 Base Matrix (R_base) to map CV camera coordinates (+X Right, +Y Down, +Z Forward) to NED world coordinates.
+- Corrected rotation order to: Yaw(Z) * Pitch(Y) * Roll(X) * R_base.
+- Fixed pitch handling: DJI's -90 (nadir) now correctly maps to the NED Down (+Z) axis.
+
+New compute_camera_pose implementation:
+```python
+    def compute_camera_pose(self, metadata):
+        yaw = metadata['GimbalYawDegree']
+        pitch = metadata['GimbalPitchDegree']
+        roll = metadata['GimbalRollDegree']
+        
+        R_base = R.from_matrix([
+            [0, 0, 1],
+            [1, 0, 0],
+            [0, 1, 0]
+        ])
+        
+        R_y = R.from_euler('y', pitch, degrees=True)
+        R_z = R.from_euler('z', yaw, degrees=True)
+        R_x = R.from_euler('x', roll, degrees=True)
+        
+        return R_z * R_y * R_x * R_base
+```
+
+3. MAPPER ENGINE (MultiBandMap2D.feed)
+--------------------------------------
+Updated the world-to-pixel mapping to ensure the map orientation is standard:
+- North is UP (-Northing)
+- East is RIGHT (+Easting)
+
+Code in feed():
+```python
+        pts_metric = np.zeros((4, 2), np.float32)
+        pts_metric[:, 0] = pts_world[:, 1]  # Easting -> X
+        pts_metric[:, 1] = -pts_world[:, 0] # -Northing -> Y (Up)
+```

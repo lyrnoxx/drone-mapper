@@ -1,0 +1,167 @@
+SourceFile: images-true/DJI_20251222151152_0001_V.JPG
+ExifTool:ExifToolVersion: 12.4
+ExifTool:Warning: [minor] Bad MakerNotes directory
+System:FileName: DJI_20251222151152_0001_V.JPG
+System:Directory: images-true
+System:FileSize: 6565888
+System:FileModifyDate: 2025:12:23 00:18:50+05:30
+System:FileAccessDate: 2025:12:23 00:18:50+05:30
+System:FileInodeChangeDate: 2026:01:02 19:56:31+05:30
+System:FilePermissions: 100777
+File:FileType: JPEG
+File:FileTypeExtension: JPG
+File:MIMEType: image/jpeg
+File:ExifByteOrder: II
+File:ImageWidth: 4000
+File:ImageHeight: 3000
+File:EncodingProcess: 0
+File:BitsPerSample: 8
+File:ColorComponents: 3
+File:YCbCrSubSampling: 2 2
+IFD0:ImageDescription: default
+IFD0:Make: DJI
+IFD0:Model: M3T
+IFD0:Orientation: 1
+IFD0:XResolution: 72
+IFD0:YResolution: 72
+IFD0:ResolutionUnit: 2
+IFD0:Software: 11.09.02.33
+IFD0:ModifyDate: 2025:12:22 15:11:52
+IFD0:YCbCrPositioning: 2
+IFD0:XPComment: 0.9.142
+IFD0:XPKeywords: single
+ExifIFD:ExposureTime: 0.001379310345
+ExifIFD:FNumber: 2.8
+ExifIFD:ExposureProgram: 2
+ExifIFD:ISO: 110
+ExifIFD:SensitivityType: 2
+ExifIFD:ExifVersion: 0230
+ExifIFD:DateTimeOriginal: 2025:12:22 15:11:52
+ExifIFD:CreateDate: 2025:12:22 15:11:52
+ExifIFD:ComponentsConfiguration: 1 2 3 0
+ExifIFD:ShutterSpeedValue: 0.00137934589647221
+ExifIFD:ApertureValue: 2.79917173119039
+ExifIFD:ExposureCompensation: 0
+ExifIFD:MaxApertureValue: 2.79917173119039
+ExifIFD:SubjectDistance: 0
+ExifIFD:MeteringMode: 1
+ExifIFD:LightSource: 2
+ExifIFD:Flash: 0
+ExifIFD:FocalLength: 4.4
+ExifIFD:FlashpixVersion: 0100
+ExifIFD:ColorSpace: 1
+ExifIFD:ExifImageWidth: 4000
+ExifIFD:ExifImageHeight: 3000
+ExifIFD:FileSource: 3
+ExifIFD:SceneType: 1
+ExifIFD:CustomRendered: 0
+ExifIFD:ExposureMode: 0
+ExifIFD:WhiteBalance: 0
+ExifIFD:DigitalZoomRatio: 1
+ExifIFD:FocalLengthIn35mmFormat: 24
+ExifIFD:SceneCaptureType: 0
+ExifIFD:GainControl: 0
+ExifIFD:Contrast: 0
+ExifIFD:Saturation: 0
+ExifIFD:Sharpness: 0
+ExifIFD:DeviceSettingDescription: (Binary data 4 bytes, use -b option to extract)
+ExifIFD:SerialNumber: 1581F5FJC241X00D0J42
+ExifIFD:LensInfo: 4.4 4.4 2.8 2.8
+InteropIFD:InteropIndex: R98
+InteropIFD:InteropVersion: 0100
+GPS:GPSVersionID: 2 3 0 0
+GPS:GPSLatitudeRef: N
+GPS:GPSLatitude: 30.9780916388889
+GPS:GPSLongitudeRef: E
+GPS:GPSLongitude: 76.4830529722222
+GPS:GPSAltitudeRef: 0
+GPS:GPSAltitude: 366.702
+GPS:GPSStatus: A
+GPS:GPSMapDatum: WGS-84
+IFD1:Compression: 7
+IFD1:XResolution: 72
+IFD1:YResolution: 72
+IFD1:ResolutionUnit: 2
+IFD1:ThumbnailOffset: 1350
+IFD1:ThumbnailLength: 25525
+IFD1:ThumbnailImage: (Binary data 25525 bytes, use -b option to extract)
+XMP-rdf:About: DJI Meta Data
+XMP-xmp:ModifyDate: 2025:12:22 15:11:52+08:00
+XMP-xmp:CreateDate: 2025:12:22 15:11:52+08:00
+XMP-tiff:Make: DJI
+XMP-tiff:Model: M3T
+XMP-dc:Format: image/jpg
+XMP-drone-dji:Version: 1.6
+XMP-drone-dji:ImageSource: WideCamera
+XMP-drone-dji:GpsStatus: Normal
+XMP-drone-dji:AltitudeType: GpsFusionAlt
+XMP-drone-dji:GPSLatitude: +30.978091661
+XMP-drone-dji:GPSLongitude: +76.483052977
+XMP-drone-dji:AbsoluteAltitude: +366.702
+XMP-drone-dji:RelativeAltitude: +142.093
+XMP-drone-dji:GimbalRollDegree: +0.00
+XMP-drone-dji:GimbalYawDegree: -87.4
+XMP-drone-dji:GimbalPitchDegree: -89.9
+XMP-drone-dji:FlightRollDegree: -1.1
+XMP-drone-dji:FlightYawDegree: -88.4
+XMP-drone-dji:FlightPitchDegree: -2.4
+XMP-drone-dji:FlightXSpeed: 0.0
+XMP-drone-dji:FlightYSpeed: 0.0
+XMP-drone-dji:FlightZSpeed: -0.2
+XMP-drone-dji:CamReverse: 0
+XMP-drone-dji:GimbalReverse: 0
+XMP-drone-dji:SelfData:
+XMP-drone-dji:SurveyingMode: 1
+XMP-drone-dji:UTCAtExposure: 2025:12:22 07:12:11.066010
+XMP-drone-dji:ShutterType: Electronic
+XMP-drone-dji:CameraSerialNumber: 1TCTLCV03BJ0M5
+XMP-drone-dji:DroneModel: M3T
+XMP-drone-dji:DroneSerialNumber: 1581F5FJC241X00D0J42
+XMP-drone-dji:LRFStatus: Normal
+XMP-drone-dji:LRFTargetDistance: 0.0
+XMP-drone-dji:LRFTargetLon: 0.0
+XMP-drone-dji:LRFTargetLat: 0.0
+XMP-drone-dji:LRFTargetAlt: 0.0
+XMP-drone-dji:LRFTargetAbsAlt: 0.0
+XMP-drone-dji:PictureQuality: 90
+XMP-crs:Version: 7.0
+XMP-crs:HasSettings: False
+XMP-crs:HasCrop: False
+XMP-crs:AlreadyApplied: False
+MPF0:MPFVersion: 0100
+MPF0:NumberOfImages: 2
+MPF0:ImageUIDList: (Binary data 66 bytes, use -b option to extract)
+MPF0:TotalFrames: 1
+MPImage1:MPImageFlags: 20
+MPImage1:MPImageFormat: 0
+MPImage1:MPImageType: 196608
+MPImage1:MPImageLength: 5836798
+MPImage1:MPImageStart: 0
+MPImage1:DependentImage1EntryNumber: 0
+MPImage1:DependentImage2EntryNumber: 2
+MPImage2:MPImageFlags: 8
+MPImage2:MPImageFormat: 0
+MPImage2:MPImageType: 65537
+MPImage2:MPImageLength: 726186
+MPImage2:MPImageStart: 5836800
+MPImage2:DependentImage1EntryNumber: 0
+MPImage2:DependentImage2EntryNumber: 0
+MPImage2:PreviewImage: (Binary data 726186 bytes, use -b option to extract)
+JFIF:JFIFVersion: 1 2
+JFIF:ResolutionUnit: 0
+JFIF:XResolution: 1
+JFIF:YResolution: 1
+Composite:Aperture: 2.8
+Composite:ImageSize: 4000 3000
+Composite:Megapixels: 12
+Composite:ScaleFactor35efl: 5.45454545454545
+Composite:ShutterSpeed: 0.001379310345
+Composite:GPSAltitude: 366.702
+Composite:GPSLatitude: 30.9780916388889
+Composite:GPSLongitude: 76.4830529722222
+Composite:CircleOfConfusion: 0.00550848111529221
+Composite:FOV: 73.7398575770812
+Composite:FocalLength35efl: 24
+Composite:GPSPosition: 30.9780916388889 76.4830529722222
+Composite:HyperfocalDistance: 1.25520730117252
+Composite:LightValue: 12.3351873153125
