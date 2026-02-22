@@ -1,1 +1,21 @@
-developer-testing
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+venv/
+env/
+.venv/
+
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+developer testing/
+prototype/
