@@ -1,0 +1,875 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+% The preceding line is only needed to identify funding in the first footnote. If that is unneeded, please comment it out.
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{url}
+\usepackage{booktabs} 
+\usepackage{tabularx}
+\usepackage{ragged2e} % For better text wrapping
+
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+\begin{document}
+
+\title{Real-Time Multi-UAV Incremental Orthomosaicing for Flood Response: A Pose-Driven Pyramid Blending Approach}
+
+% \author{\IEEEauthorblockN{1\textsuperscript{st} Given Name Surname}
+% \IEEEauthorblockA{\textit{dept. name of organization (of Aff.)} \\
+% \textit{name of organization (of Aff.)}\\
+% City, Country \\
+% email address or ORCID}
+% \and
+% \IEEEauthorblockN{2\textsuperscript{nd} Given Name Surname}
+% \IEEEauthorblockA{\textit{dept. name of organization (of Aff.)} \\
+% \textit{name of organization (of Aff.)}\\
+% City, Country \\
+% email address or ORCID}
+% }
+
+\author{\IEEEauthorblockN{%1\textsuperscript{st} 
+Jugal Alan}
+\IEEEauthorblockA{\textit{M.tech. in Artificial Intelligence} \\
+\textit{Indian Institute of Technology Ropar}\\
+Rupnagar, 140001, Punjab, India \\
+2024aim1004@iitrpr.ac.in}
+\and
+\IEEEauthorblockN{%2\textsuperscript{nd} 
+Dr. Shashi Shekhar Jha}
+\IEEEauthorblockA{\textit{Computer Science and Engineering} \\
+\textit{Indian Institute of Technology Ropar}\\
+Rupnagar, 140001, Punjab, India \\
+shashi@iitrpr.ac.in}
+}
+
+\maketitle
+
+\begin{abstract}
+The timing of flood disasters poses a unique challenge for emergency response. The "golden hour" depends on quick and accurate spatial intelligence. Traditional remote sensing methods, like satellite imagery and offline Structure-from-Motion (SfM), often fall short of these time-sensitive needs because of cloud cover, delays, and complex computations. This paper offers a solid technical solution: a real-time, multi-UAV incremental orthomosaicing system. By shifting from offline photogrammetry to an online, pose-driven stitching process, the proposed system creates a "living map" that updates instantly. We tackle the specific problems of mapping moving water surfaces—where traditional computer vision methods struggle—by using direct georeferencing and improved Multi-Band Laplacian Pyramid Blending. We provide the mathematical derivations of the Inverse Pinhole Projection model, the implementation of a dynamic sparse tiling engine, and validation through a trace-driven simulation environment  
+\end{abstract}
+
+\begin{IEEEkeywords}
+UAV, Real-Time Mapping, Flood Response, mosaicing, Laplacian Pyramid Blending, Orthophoto.   
+\end{IEEEkeywords}
+
+\section{Introduction}
+
+\subsection{The Operational Imperative of Real-Time Flood Mapping}
+Emergency response operations face a special and harsh challenge due to the temporal dynamics of flood disasters. Floodwaters are a constantly changing hazard, in contrast to static disaster scenarios like earthquake aftermaths, where the primary destruction event is instantaneous and the subsequent structural state remains relatively fixed. The local topography is essentially altered in real time by a river overflowing its banks or a flash flood ripping through a canyon.
+
+Rescuers must be aware of the current location of the water in this fast-moving environment. These demands have historically been unmet by conventional remote sensing pipelines. Weather frequently affects satellite imagery, and Synthetic Aperture Radar (SAR) frequently lacks the granularity needed for urban search and rescue. Additionally, intelligence becomes operationally outdated due to the latency between data delivery and acquisition.
+
+While Unmanned Aerial Vehicles (UAVs) offer localized, high-resolution mapping, the standard workflow (offline SfM processing) retains the flaw of latency. The computational complexity of global Bundle Adjustment (BA) scales poorly ($O(n^3)$ or $O(n^4)$), turning a map into a historical document rather than a tactical asset. This report presents a real-time, multi-UAV incremental orthomosaicing system to bridge this gap.
+
+\subsection{The Stochastic Nature of Water and Algorithmic Failure}
+Standard stitching algorithms, including those in ORB-SLAM3, rely on feature extraction (SIFT, SURF, ORB) and matching. Water surfaces are a challenging area for these descriptors because of:
+\begin{enumerate}
+    \item \textbf{Feature Starvation:} Turbid floodwaters do not have clear, fixed textures.
+    \item \textbf{Specular Reflection:}Features detected are often reflections of the sky or sun. As the UAV moves, these reflections change position based on the laws of reflection. This violates the strict scene assumption.
+    \item \textbf{Dynamic Deformation:} Ripples and waves can make texture patches change or disappear.
+\end{enumerate}
+
+As a result, over water, feature-based engines frequently diverge. According to this study, it is a design flaw to rely on image content for alignment over floodwaters. Rather, the system uses \textit{Direct Georeferencing}, which projects frames onto a global coordinate system using high-frequency telemetry (GPS/IMU).
+
+\subsection{Proposed Technical Architecture: The Map2DFusion Paradigm}
+Our architecture is inspired by the Map2DFusion framework \cite{map2dfusion}, updating it to respond to floods. Decoupling localization from mapping is the fundamental innovation. By treating the drone's pose as an external input, we free up the mapping engine to concentrate on blending and projection mechanics.
+
+We use \textit{Multi-Band Laplacian Pyramid Blending} to manage pose drift and avoid “ghosting." This breaks down images into spatial frequencies; high frequencies use a sharp transition mask, while low frequencies are blended over a large area. In spite of imperfect alignment, this guarantees structural integrity.
+
+\subsection{Research Goals}
+This report describes the creation of: \begin{itemize} \item \textbf{Mathematical Derivations:} The Inverse Pinhole Projection model uses 6-DOF telemetry to correct oblique imagery.
+    \item \textbf{Algorithmic Application:} A mapping engine based on Python that uses Laplacian Blending and dynamic sparse tiling.
+    \item \textbf{Simulation \& Validation:} The NPU Drone Map Dataset is used in a trace-driven simulation environment.
+    \item \textbf{Performance Analysis:} Throughput (FPS), latency, and visual quality are evaluated. \end{itemize}
+
+% % Placeholder for System Architecture Diagram
+% \begin{figure}[htbp]
+% \centering
+% \fbox{\parbox{0.9\linewidth}{\centering \vspace{2cm} [INSERT SYSTEM ARCHITECTURE DIAGRAM HERE] \vspace{2cm}}}
+% \caption{High-level architecture of the proposed real-time mapping system, showing the data flow from UAV telemetry to the Multi-Band Blending Engine.}
+% \label{fig:arch}
+% \end{figure}
+
+\begin{figure}[ht!]
+    \centering
+    \includegraphics[width=0.95\columnwidth]{arch-old.png}
+    \caption{High-level architecture of the proposed real-time mapping system, showing the data flow from UAV telemetry to the Multi-Band Blending Engine.}
+    \label{fig:arch}
+\end{figure}
+
+% ==========================================
+% PREAMBLE CHECKLIST
+% Ensure these packages are in your main.tex file:
+% \usepackage{amsmath}  % For mathematical formulas
+% \usepackage{amssymb}  % For math symbols
+% \usepackage{graphicx} % If you plan to add the images later
+% ==========================================
+
+\section{THEORETICAL FRAMEWORK AND RELATED WORK}
+
+\subsection{The Spectrum of Mapping: Accuracy vs. Latency}
+The field of aerial mapping involves a basic trade-off among geometric accuracy, computational delay, and environmental stability. Current research divides mapping processes into three clear categories, each with its own limitations when it comes to responding to disasters in real time.
+
+\subsubsection{Structure-from-Motion (SfM)}  
+The best method for producing high-fidelity orthomosaics and Digital Elevation Models (DEMs) is still offline photogrammetry. The idea behind solutions like COLMAP\cite{colmap}, Pix4D\cite{pix4d}, and OpenDroneMap (ODM\cite{odm} is to extract unique invariant features (like SIFT, SURF, and ORB) from the complete set of images. These systems employ global \textbf{Bundle Adjustment (BA)} to simultaneously refine 3D structure and camera poses by minimizing the total reprojection error \cite{snavely2006photo}. Dense point clouds must be produced using \textbf{Multi-View Stereo (MVS)} algorithms (such as PatchMatch) after sparse reconstruction.
+\begin{itemize} \item \textbf{Computational Bottleneck:} SfM is computationally prohibitive for instant situational awareness, despite its high accuracy. As the number of images and features increases, the bundle adjustment time complexity increases cubically ($O(n^3)$. This load is increased by MVS, which frequently needs powerful GPUs to handle even small datasets.
+    \item \textbf{Latency Gap:} Because SfM is a batch process by nature, reconstruction cannot start until the full dataset is available. This creates a large latency gap (often hours) between data acquisition and map availability in a flood response scenario, making it practically useless for rescue planning or real-time navigation.
+\end{itemize}
+
+\subsubsection{Simultaneous Localization and Mapping (SLAM)}
+Visual SLAM (V-SLAM) systems such as ORB-SLAM3\cite{orbslam3} and VINS-Mono\cite{vinsmono} address the latency of SfM by treating mapping as an incremental probabilistic problem. These systems use relocalization techniques to recover from tracking loss and Loop Closure to correct accumulated drift in order to estimate the current state based on past states.
+
+However, critical failure modes unique to aerial flood assessment are presented by standard V-SLAM:
+\begin{itemize} \item \textbf{Utility and Sparsity}: Instead of the dense, human-readable maps needed by first responders, the resulting maps are frequently sparse point clouds designed for robot localization.
+    \item \textbf{Scale Ambiguity:} Map drift over extended trajectories results from the system's inability to recover metric scale without external sensor fusion (IMU) in monocular SLAM setups, which are frequently found on lightweight drones.
+    \item \textbf{Visual Aliasing (Feature Starvation):} Static distinct feature tracking is a major component of V-SLAM. Water surfaces behave as dynamic, textureless, or specularly reflective planes in flood situations. This results in catastrophic tracking loss when feature trackers malfunction or lock onto moving reflections.
+\end{itemize}
+
+\subsubsection{Direct Georeferencing}
+The method used in this work completely avoids the feature-matching issue. Instead of figuring out pose from image content, the camera position $(x, y, z)$ and orientation $(\phi, \theta, \psi)$ come directly from the UAV's onboard GNSS and IMU sensors. The image is projected onto a reference plane, assuming a flat earth or DEM, using a homography matrix based on sensor metadata.
+
+\begin{itemize}
+    \item \textbf{Algorithmic Advantage:} This reduces the computational complexity to $O(1)$ per frame, because the placement of an image depends only on its metadata and not on its relationship to $N$ other images. This is the only approach that can guarantee strict real-time performance on edge devices.
+    \item \textbf{The Registration Challenge:} The trade-off is that map accuracy is strictly coupled to sensor fidelity. Errors stem from two sources:
+    \begin{enumerate}
+        \item \textit{GPS Variance:} Standard GNSS modules exhibit position errors of $2$--$5$m, introducing visible misalignments (seams) between overlapping images.
+        \item \textit{Boresight Misalignment:}Small angular errors in the IMU (roll/pitch) increase with altitude. A $1^{\circ}$ error at $100$m altitude causes a lateral displacement of about $\approx 1.7$m.
+    \end{enumerate}
+    As a result, the responsibility for map quality changes from \textit{geometric optimization} (correcting the coordinates) to \textit{photometric blending} (hiding the inconsistencies).
+\end{itemize}
+
+
+\subsection{Deep Dive: Map2DFusion and Pyramid Blending}
+To reduce the geometric inconsistencies in Direct Georeferencing, this research uses the blending backend of Map2DFusion \cite{map2dfusion}. While the original Map2DFusion uses SLAM priors, we modify its multi-resolution blending structure to work with noisy GNSS priors. This links traditional aerial photogrammetry methods with new incremental stitching techniques.
+
+\subsubsection{The Logic of Incremental Stitching}
+In nadir aerial photography, geometric distortion is minimal at the optical center and increases at the edges. To focus on high-quality data, we use a radial weighting function $w(u, v)$ that decreases from the principal point:
+
+\begin{equation} \label{eq:weighting}
+w(u, v) = 1 - \left( \frac{\sqrt{(u - c_x)^2 + (v - c_y)^2}}{R_{max}} \right)^p
+\end{equation}
+
+\noindent Where $(c_x, c_y)$ is the image center, $R_{max}$ is the Euclidean distance to the image corner, and $p$ is a shaping exponent. By setting $p$ appropriately, we create a ``soft mask'' that biases the stitcher to overwrite the noisy edges of the existing map with the sharp center of the incoming frame.
+
+\subsubsection{Multi-Band Blending Mathematics}
+When geometric alignment is not perfect, naive averaging of overlapping images causes ``ghosting'' (double vision). We use \textbf{Laplacian Pyramid Blending}, a method first described by Burt and Adelson \cite{burt1983laplacian}, to solve this. Images are broken down into spatial frequency bands using this technique.
+
+The \textbf{Gaussian Pyramid ($G$)} represents the image at reduced scales (low frequencies/color):
+\begin{equation}
+G_0 = I, \quad G_{i+1} = \text{Downsample}(G_i)
+\end{equation}
+
+The \textbf{Laplacian Pyramid ($L$)} captures the edge details (high frequencies) lost during downsampling:
+\begin{equation}
+L_i = G_i - \text{Upsample}(G_{i+1})
+\end{equation}
+
+Reconstruction is achieved by summing the upsampled residuals:
+\begin{equation}
+I = \sum_{i=0}^{n-1} \left( \text{Upsample}(L_{i+1}) + L_i \right)
+\end{equation}
+
+When fusing an incoming frame $A$ into the global map $B$ using a mask $M$, the blending occurs at every level $i$:
+\begin{equation}
+L_{final}[i] = L_A[i] \cdot G_M[i] + L_B[i] \cdot (1 - G_M[i])
+\end{equation}
+
+This ensures that low-frequency variations (exposure differences) are smoothed over a large area, while high-frequency features (edges, buildings) are transitioned sharply.
+
+\subsubsection{Adaptive Max-Weight Selection}
+Standard pyramid blending assumes a static composition. In a real-time rolling map, we must decide whether to update a pixel or retain the old value. We implement a \textbf{Max-Weight Selection} rule. The value at map coordinate $(x, y)$ is derived from the source with the higher weighting confidence:
+
+\begin{equation} \label{eq:max_weight}
+L_{map}(x, y) = \begin{cases} 
+L_{new}(x, y) & \text{if } W_{new}(x, y) > W_{map}(x, y) \\
+L_{map}(x, y) & \text{otherwise}
+\end{cases}
+\end{equation}
+
+This logic uses a ``closest-to-nadir'' approach. It removes ghosting by requiring a firm decision at the pixel level for high-frequency details. The Laplacian structure makes sure the transition stays smooth for the human eye.
+
+% \section{Theoretical Framework and Related Work}
+
+% \subsection{The Spectrum of Mapping}
+% The field is defined by a trade-off between accuracy and latency.
+
+% \subsubsection{Structure-from-Motion (SfM)}
+% Offline photogrammetry (e.g., Pix4D, OpenDroneMap) is the gold standard for accuracy. It employs global Bundle Adjustment to minimize reprojection error. However, the cubic complexity ($O(n^3)$) and batch processing requirement make it incompatible with real-time streaming \cite{aerial_mapping_design}.
+
+% \subsubsection{Simultaneous Localization and Mapping (SLAM)}
+% Systems like ORB-SLAM3 build maps incrementally. However, the generated maps are often sparse point clouds. Monocular SLAM suffers from scale ambiguity and frequently loses tracking over featureless water surfaces.
+
+% \subsubsection{Direct Georeferencing}
+% The approach adopted here bypasses feature matching. Camera position and orientation are determined directly by GNSS and IMU.
+% \begin{itemize}
+%     \item \textbf{Advantage:} Constant processing time ($O(1)$) and robustness to textureless surfaces.
+%     \item \textbf{Challenge:} Map accuracy is coupled to sensor accuracy. Standard GPS errors (2-5m) can lead to visible misalignments.
+% \end{itemize}
+
+% \subsection{Deep Dive: Map2DFusion and Pyramid Blending}
+% This research draws on Map2DFusion \cite{map2dfusion_blog}, which combines monocular SLAM poses with a sophisticated blending frontend.
+
+% \subsubsection{The Logic of Incremental Stitching}
+% Pixels at the image center (nadir) are geometrically most accurate. We apply a weighting function $w(u,v)$ that decays from the center:
+% \begin{equation}
+% w(u,v) = \left( 1 - \frac{\sqrt{(u-c_x)^2 + (v-c_y)^2}}{R_{max}} \right)^p
+% \end{equation}
+% Where $(c_x, c_y)$ is the center, $R_{max}$ is the distance to the corner, and $p$ is a shaping exponent.
+
+% \subsubsection{Multi-Band Blending Mathematics}
+% Laplacian Pyramid Blending \cite{gpu_blending} separates the image into frequency bands to solve ghosting.
+% The Gaussian Pyramid ($G$) is created by downsampling:
+% \begin{equation}
+% G_0 = I, \quad G_{i+1} = \text{Downsample}(G_i)
+% \end{equation}
+% The Laplacian Pyramid ($L$) captures details lost in downsampling:
+% \begin{equation}
+% L_i = G_i - \text{Upsample}(G_{i+1})
+% \end{equation}
+% The original image is reconstructed via:
+% \begin{equation}
+% I = \sum_{i=0}^{n-1} \text{Upsample}(L_{i+1}) + L_i
+% \end{equation}
+% When fusing images $A$ and $B$ with mask $M$:
+% \begin{equation}
+% L_{final}[i] = L_A[i] \cdot G_M[i] + L_B[i] \cdot (1 - G_M[i])
+% \end{equation}
+
+% \subsubsection{Adaptive Weighting}
+% We implement a \textit{Max-Weight Selection} rule. For any pixel, the value is derived from the image with the highest confidence:
+% \begin{equation}
+% L_{map}(x,y) = \begin{cases} L_{new}(x,y) & \text{if } W_{new}(x,y) > W_{map}(x,y) \\ L_{map}(x,y) & \text{otherwise} \end{cases}
+% \end{equation}
+% This eliminates ghosting by forcing a hard decision at the pixel level while maintaining seamless transitions via the Laplacian structure.
+
+% Placeholder for Pyramid Blending Visual
+% \begin{figure}[htbp]
+% \centering
+% \fbox{\parbox{0.9\linewidth}{\centering \vspace{1.5cm} [INSERT PYRAMID BLENDING VISUAL HERE] \vspace{1.5cm}}}
+% \caption{Visual representation of the Gaussian and Laplacian decomposition levels.}
+% \label{fig:pyramid}
+% \end{figure}
+
+\begin{figure}[ht!]
+    \centering
+    \includegraphics[width=0.95\columnwidth]{pyra.png}
+    \caption{Visual representation of the Gaussian and Laplacian decomposition levels.}
+    \label{fig:pyra}
+\end{figure}
+
+
+
+% \begin{table*}[htbp]
+%     \centering
+%     \caption{Comparison of Aerial Mapping Architectures against the Proposed System}
+%     \label{tab:mapping_comparison}
+%     \small % Slightly smaller font to fit content better
+%     \renewcommand{\arraystretch}{1.2} % Adds breathing room between rows
+%     \begin{tabularx}{\textwidth}{@{} p{2.5cm} p{2.2cm} X X l @{}}
+%         \toprule
+%         \textbf{Approach} & \textbf{Examples} & \textbf{Strengths} & \textbf{Weaknesses} & \textbf{Real-Time?} \\
+%         \midrule
+        
+%         SfM Photogrammetry & 
+%         COLMAP, OpenDroneMap, Metashape & 
+%         Very high accuracy; produces 3D models and DEMs; global optimization. & 
+%         Extremely slow (minutes to hours); feature-dependent; fails over water. & 
+%         No \\
+%         \addlinespace
+        
+%         Visual SLAM & 
+%         ORB-SLAM3, VINS-Mono, DSO & 
+%         Low latency; incremental camera tracking; loop closure capabilities. & 
+%         Produces sparse maps; prone to drift; fragile over water; not designed for orthomosaics. & 
+%         Limited \\
+%         \addlinespace
+        
+%         Video Mosaicking & 
+%         Homography-based stitching & 
+%         Very fast processing; lightweight computational load. & 
+%         Assumes a strictly planar scene; fails when significant parallax is present. & 
+%         Limited \\
+%         \addlinespace
+        
+%         \textbf{Direct Georeferencing (Ours)} & 
+%         \textbf{Proposed System} & 
+%         \textbf{Deterministic real-time performance; robust over water; multi-UAV ready.} & 
+%         \textbf{Accuracy depends on GPS/IMU quality; lacks loop closure optimization.} & 
+%         \textbf{Yes} \\
+        
+%         \bottomrule
+%     \end{tabularx}
+% \end{table*}
+
+
+\section{Methodology: System Design}
+The suggested real-time orthomosaicing system changes raw UAV telemetry and monocular images into a globally consistent stitched map. The design is modular and takes latency into account. It is also optimized for incremental updates, allowing for use in real-time flood response situations. This section formalizes the geometric foundations and describes the system architecture, including projection, warping, tiling, blending, and the simulation-driven evaluation pipeline.
+
+\subsection{Coordinate Systems and Formulation}
+Accurate mapping requires consistent transformations between multiple reference frames. The system employs standard aerial photogrammetry conventions and converts all measurements into a common Local Tangent Plane (LTP) for computation.
+
+\begin{itemize}
+    \item \textbf{Geodetic Frame ($G$):} Global reference frame storing GNSS measurements in latitude, longitude, and ellipsoidal altitude. Used only as the source coordinate system.
+    \item \textbf{Local Tangent Plane ($W$):} A metric ENU frame constructed at mission start via geodetic-to-ENU conversion. All world coordinates, tiles, and mosaics are defined in this frame.
+    \item \textbf{Body Frame ($B$):} UAV-centric coordinate system aligned with IMU axes (roll--pitch--yaw). GNSS and IMU fusion yields the pose in $W$.
+    \item \textbf{Camera Frame ($C$):} The physical camera sensor frame, with $+Z$ along the optical axis. A calibrated extrinsic transform maps $C \rightarrow B$.
+\end{itemize}
+
+This multi-frame formulation allows the system to cleanly separate sensing, pose estimation, and projection. In practice, AirSim-compatible extrinsics and DJI/NPU calibration parameters were used.
+
+\subsubsection{Camera Model and Collinearity Equations}
+Orthomosaic generation relies on the classical collinearity equations of the pinhole camera:
+\begin{equation}
+s \tilde{p} = K [R_{CW} \mid \mathbf{t}_{CW}] \mathbf{P}_W
+\end{equation}
+where $R_{CW}$ and $\mathbf{t}_{CW}$ represent the rotation and translation from world to camera coordinates. In incremental mosaicing, the inverse mapping $C \rightarrow W$ is required.
+
+\subsubsection{Inverse Pinhole Projection Model}
+Let $K$ be the camera intrinsic matrix:
+\begin{equation}
+K = \begin{bmatrix}
+f_x & 0 & c_x \\
+0 & f_y & c_y \\
+0 & 0 & 1
+\end{bmatrix}
+\end{equation}
+
+A pixel $p = (u, v, 1)^T$ is back-projected to a normalized camera ray:
+\begin{equation}
+\mathbf{r}_c = K^{-1} \tilde{p}
+\end{equation}
+
+The UAV pose provides the world-to-camera rotation $R$ (from IMU quaternion) and camera center $\mathbf{C}_{pos}$ in ENU. The ray is transformed to world coordinates:
+\begin{equation}
+\mathbf{r}_w = R \cdot \mathbf{r}_c
+\end{equation}
+
+To compute the corresponding ground intersection, we assume a locally planar terrain with $Z = 0$. The ground point is:
+\begin{equation}
+\mathbf{P}_{W} = \mathbf{C}_{pos} + \lambda \mathbf{r}_w
+\end{equation}
+with the scale factor:
+\begin{equation}
+\lambda = -\frac{C_z}{r_{w,z}}
+\end{equation}
+
+Projecting the four image corners through this formulation yields their world-space positions. These define the homography $H$ between the image plane and the ground plane:
+\begin{equation}
+\mathbf{x}' = H \mathbf{x}
+\end{equation}
+This allows fast, deterministic warping via OpenCV's \texttt{warpPerspective}.
+
+\subsubsection{Ground Plane and Flood-Specific Considerations}
+Dynamic surface behavior is introduced in flood scenarios. Although the water surface is not strictly planar, at UAV altitudes ($15$--$50$ m), local deviations are negligible compared to GPS noise. As a result, the $Z=0$ assumption is still operationally sound. Because the inverse projection depends only on telemetry geometry and not on image content, it remains stable for regions with strong reflections.
+
+\subsection{The Mapping Engine}
+The core of the system is the \texttt{MultiBandMap2D} engine, designed to be:
+\begin{itemize}
+    \item \textbf{Incremental}
+    \item \textbf{Tile-based}
+    \item \textbf{Low-latency}
+    \item \textbf{Multi-frequency aware}
+    \item \textbf{Scalable to multi-UAV streams}
+\end{itemize}
+The mapping engine processes $50$--$100+$ images per second while maintaining low memory overhead.
+
+\subsubsection{Dynamic Sparse Tiling}
+Global maps may span hundreds of meters. Storing a monolithic texture is not feasible. Instead, the map is decomposed into fixed-size tiles (e.g., $512 \times 512$ pixels in world coordinates). Each tile is identified by a discrete index:
+
+\begin{equation}
+(t_x, t_y) = \left( \left\lfloor \frac{X}{L} \right\rfloor, \left\lfloor \frac{Y}{L} \right\rfloor \right)
+\end{equation}
+where $L$ is the tile size in meters. Key benefits include:
+
+\begin{itemize}
+    \item Only tiles touched by warped images are ever allocated.
+    \item Hash-based indexing provides $O(1)$ tile access.
+    \item Memory grows with explored area, not time.
+    \item Multi-UAV inputs naturally distribute across tiles.
+\end{itemize}
+In long missions, an LRU cache can serialize older tiles to disk.
+
+\subsubsection{Feed Pipeline: Warping, Weighting, and Blending}
+Each incoming image triggers the following steps:
+\begin{enumerate}
+    \item \textbf{Pose decoding:} Extract quaternion and translation from telemetry header.
+    \item \textbf{Homography computation:} Use the projected corner points to compute $H$.
+    \item \textbf{Perspective warping:} Warp image into world coordinates at map resolution.
+    \item \textbf{Weight mask generation:} A Gaussian center-weight mask prioritizes nadir pixels.
+    \item \textbf{Laplacian pyramid creation:} Multi-frequency representation of the warped image.
+    \item \textbf{Tile update:} For each tile touched:
+    \begin{itemize}
+        \item Assess confidence via mask.
+        \item Update Laplacian coefficients using Max-Weight rules.
+        \item Store Gaussian mask pyramid alongside image frequencies.
+    \end{itemize}
+    \item \textbf{Metadata update:} Track UAV index, timestamp, and pose for each tile.
+\end{enumerate}
+This pipeline maintains strength even with unreliable telemetry or uneven arrivals.
+
+\subsubsection{Rendering and Live Reconstruction}
+The engine stores only Laplacian pyramid layers for each tile. Full reconstruction occurs only when:
+\begin{itemize}
+    \item The user requests a map snapshot.
+    \item The GUI visualizer needs an update.
+    \item Periodic low-frequency previews are generated.
+\end{itemize}
+
+Reconstruction follows the pyramid collapse:
+\begin{equation}
+I = \sum_{i=0}^{n-1} \left( \text{Upsample}(L_{i+1}) + L_i \right)
+\end{equation}
+
+Even if UAV pose quality varies over time, updated tiles blend in seamlessly with existing ones because blending is stored in frequency space. For \emph{real-time stream fusion}, this design resembles contemporary GIS tile servers (such as Google Maps/Mapbox).
+
+\subsection{Simulation Framework}
+To assess system behavior without the need for actual UAVs, a Hardware-in-the-Loop-style simulation was created. The NPU Drone Map Dataset is utilized in this simulation and includes:
+\begin{itemize}
+    \item High-resolution aerial images.
+    \item Accurate timestamped flight trajectories.
+    \item Sequences over both textured terrain and water bodies.
+\end{itemize}
+
+\subsubsection{Telemetry Streaming via TCP}
+The simulation replays:
+\begin{itemize}
+    \item Raw images in acquisition order.
+    \item Pose packets (quaternion + ENU translation).
+    \item Asynchronous timestamps.
+    \item Variable transmission delays ($10$--$150$ ms).
+\end{itemize}
+This emulates real UAV communication behavior, including:
+\begin{itemize}
+    \item Packet jitter.
+    \item Out-of-order delivery.
+    \item Bandwidth limits.
+    \item Multi-UAV concurrency.
+\end{itemize}
+
+\subsubsection{Multi-UAV Stress Testing}
+Separate threads are used to run multiple simulated drones (such as $\alpha$ and $\beta$ agents). Each provides the mapper with telemetry on its own, allowing tests of:
+\begin{itemize}
+    \item Tile-lock contention.
+    \item Synchronization robustness.
+    \item Varying frame rates.
+    \item Abrupt altitude changes.
+    \item Drift accumulation.
+\end{itemize}
+The system design ensures thread safety and allows lock-free access to the map by using Python’s atomic behavior at the dictionary level and operations that are local to the tile.  
+\subsubsection{Evaluation Outputs}
+The simulation framework records:
+\begin{itemize}
+    \item Frame-level latency.
+    \item End-to-end update frequency.
+    \item Tile allocation patterns.
+    \item Blending quality metrics.
+    \item Coverage heatmaps.
+\end{itemize}
+These outputs were used for adjusting parameters, such as pyramid depth, tile size, and blending thresholds. They also helped in checking real-time constraints.
+% \section{Methodology: System Design}
+
+% \subsection{Coordinate Systems and Formulation}
+% We utilize collinearity equations derived from the pinhole model.
+% \begin{itemize}
+%     \item \textbf{Geodetic Frame:} Raw GPS (Lat, Lon, Alt).
+%     \item \textbf{Local Tangent Plane ($W$):} ENU metric system, origin at mission start.
+%     \item \textbf{Body Frame ($B$):} Attached to the UAV.
+%     \item \textbf{Camera Frame ($C$):} Sensor frame (Z-axis optical).
+% \end{itemize}
+
+% \subsubsection{Inverse Pinhole Projection Model}
+% Let $K$ be the intrinsic camera matrix:
+% \begin{equation}
+% K = \begin{bmatrix} f_x & 0 & c_x \\ 0 & f_y & c_y \\ 0 & 0 & 1 \end{bmatrix}
+% \end{equation}
+% A pixel $p$ is converted to a normalized ray $\mathbf{r}_c = K^{-1} \tilde{p}$. The ray is transformed to the world frame using the rotation matrix $R$ derived from the quaternion: $\mathbf{r}_w = R \cdot \mathbf{r}_c$.
+
+% We calculate the intersection with the ground plane ($Z=0$):
+% \begin{equation}
+% \mathbf{P}_{world} = \mathbf{C}_{pos} + \lambda \cdot \mathbf{r}_w
+% \end{equation}
+% Solving for $\lambda$ where $P_z = 0$:
+% \begin{equation}
+% \lambda = - \frac{C_z}{r_{w,z}}
+% \end{equation}
+% Using the four projected corners, we compute the Homography Matrix $H$ such that $\mathbf{x}' = H \mathbf{x}$.
+
+% \subsection{The Mapping Engine}
+% The \texttt{MultiBandMap2D} class handles stitching.
+% \begin{itemize}
+%     \item \textbf{Dynamic Sparse Tiling:} To manage memory, the world is divided into discrete grids (e.g., $512 \times 512$). Tiles are allocated on-demand using a hash key $(t_x, t_y)$.
+%     \item \textbf{The Feed Pipeline:} Input images are warped using $H$. A Laplacian pyramid is generated for the image, and a Gaussian pyramid for the weight mask. The Max-Weight logic updates the tiles.
+%     \item \textbf{Rendering:} The map acts as a collection of Laplacian coefficients. Reconstruction occurs only for display, allowing blending to remain ``live.''
+% \end{itemize}
+
+% \subsection{Simulation Framework}
+% A Hardware-in-the-Loop proxy was developed using the NPU Drone Map Dataset. It replays trajectory files and images, streaming data over a TCP socket to simulate a raw telemetry link.
+
+% \section{Implementation and Code Analysis}
+
+% \subsection{mapper.py: The Engine}
+% The helper function \texttt{\_create\_laplace\_pyr} converts images to float32 and performs \texttt{pyrDown} and \texttt{pyrUp} operations to isolate frequency bands.
+
+% The \texttt{feed} function retrieves the quaternion and translation from the binary header, computes the rotation matrix, and implements the ray intersection logic derived in Section III. It utilizes \texttt{cv2.getPerspectiveTransform} and \texttt{cv2.warpPerspective} to align frames.
+
+% \subsection{sim.py: The Stimulus}
+% The simulator uses \texttt{threading.Thread} to instantiate multiple drone objects (Alpha and Bravo), testing the GCS's robustness to asynchronous data and race conditions. Variable delay parameters simulate latency and bandwidth constraints.
+
+\section{EXPERIMENTAL EVALUATION AND RESULTS}
+Multi-threaded multi-UAV simulations, synthetic telemetry replay, and real-world UAV datasets were used to assess the suggested orthomosaicing pipeline. Quantitative performance, qualitative stitching behavior, and system-level observations pertinent to real-time flood response operations are reported in this section.
+
+\subsection{Dataset Characteristics}
+The NPU Drone Map Dataset, a popular benchmark for UAV image mosaicing and SLAM research, was used for evaluation. The principal sequence chosen for verification was:
+
+\subsubsection{phantom3-village}
+A DJI Phantom 3 sequence recorded over a semi-urban village. Key characteristics include:
+\begin{itemize}
+    \item Mostly static buildings and roads.
+    \item High overlap between consecutive frames.
+    \item Good-quality GPS tags with low drift.
+    \item Stable lighting without major exposure changes.
+\end{itemize}
+This dataset provides a reliable baseline for geometric alignment, allowing the system’s projection accuracy and blending stability to be quantified under ideal conditions.
+
+\subsection{Performance Metrics}
+Experiments took place on a standard workstation setup to simulate edge-deployment limitations.
+\begin{itemize}
+    \item \textbf{CPU:} Intel Core i7
+    \item \textbf{RAM:} 16 GB
+    \item \textbf{GPU:} None (CPU-based warping and blending)
+\end{itemize}
+Latency and throughput were measured at the mapper’s entrance and exit points to capture the actual end-to-end behavior.
+\subsubsection{Computational Throughput}
+The pipeline keeps its performance in real-time, even when handling multiple UAVs. Table \ref{tab:throughput} shows the performance metrics.
+
+% \begin{table}[h]
+% \centering
+% \caption{System Throughput Analysis}
+% \label{tab:throughput}
+% \begin{tabular}{|l|c|c|l|}
+% \hline
+% \textbf{Configuration} & \textbf{FPS} & \textbf{Telemetry} & \textbf{Notes} \\ \hline
+% Single UAV & $\approx 22$ & 5--10 Hz & Processing exceeds telemetry rate \\ \hline
+% Dual UAV (Sim) & $\approx 16$ & Asynchronous & Thread-safe updates remain stable \\ \hline
+% \end{tabular}
+% \end{table}
+\begin{table}[h]
+\centering
+\caption{System Throughput Analysis}
+\label{tab:throughput}
+% Resizes the table to exactly the width of the column
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{|l|c|c|l|}
+\hline
+\textbf{Configuration} & \textbf{FPS} & \textbf{Telemetry} & \textbf{Notes} \\ \hline
+Single UAV & $\approx 22$ & 5--10 Hz & Processing exceeds telemetry rate \\ \hline
+Dual UAV (Sim) & $\approx 16$ & Asynchronous & Thread-safe updates remain stable \\ \hline
+\end{tabular}%
+}
+\end{table}
+
+\noindent \textbf{Key observations:}
+\begin{itemize}
+    \item Throughput significantly surpasses real-time thresholds, guaranteeing no backlog even when UAVs move quickly.
+    \item Several hundred frames can be processed without cache pressure thanks to dynamic sparse tiling, which maintains a small memory footprint.
+    \item Multi-threaded inputs do not lower blending quality. This confirms that the locking strategy is correct and that tile-local updates are independent.
+\end{itemize}
+
+\subsubsection{End-to-End Latency}
+End-to-end latency is the time from when the image arrives to when the stitched map is available. This time was consistently in the range of \textbf{80--120 ms}. The latency budget is broken down as follows:
+
+\begin{itemize}
+    \item \textbf{Network / Socket Delay:} 10--20 ms
+    \item \textbf{Warping + Pyramid Construction:} 40--60 ms
+    \item \textbf{Tile Update + Max Weight Fusion:} 10--20 ms
+\end{itemize}
+
+The system is easily within human-in-the-loop visual inspection requirements and typical UAV GCS display refresh rates (5–10 Hz) with a latency budget of less than 150 ms. This demonstrates that the system can be used in real-time disaster situations where operators require almost instantaneous visual updates.
+
+\subsection{Visual Quality Analysis}
+Stitched results were compared to visual inspection and blending logs in order to conduct a qualitative analysis.
+
+\subsubsection{Seam Hiding and Exposure Consistency}
+Multi-Band Laplacian Pyramid Blending worked well to reduce changes in exposure. There were no visible seams in the \textit{phantom3-village} sequence, which had bright rooftops, shaded areas, and asphalt roads that blended together perfectly.
+\begin{itemize}
+    \item The \textbf{low-frequency pyramid} ensured global color consistency.
+    \item The \textbf{high-frequency bands} preserved building edges and road boundaries.
+\end{itemize}
+This shows that the blending framework is strong against small pose errors and changes in lighting. Both of these are common in raw UAV footage.
+
+\subsubsection{Geometric Stability and Drift Analysis}
+Despite visually coherent mosaics, the system showed expected behaviors that are typical of pose-only mapping:
+\begin{itemize}
+    \item $1$--$2$ meter drift during aggressive turns.
+    \item Small-scale misalignments correlated with IMU yaw drift and GPS positional noise.
+\end{itemize}
+These differences are normal because Direct Georeferencing doesn't have the Loop Closure corrections that full SLAM systems do. But the drift was smooth in space and didn't break up the mosaic. The result is still good enough for tactical flood mapping, where relative map continuity and immediacy are more important than absolute accuracy to the nearest centimeter.
+\subsection{Summary of Findings}
+The experimental results confirm that:
+\begin{itemize}
+    \item The system meets real-time requirements ($\geq 16$ FPS, $\leq 120$ ms latency).
+    \item Pose-driven mosaicing is robust to standard aerial scenes.
+    \item Multi-band blending produces visually consistent orthomosaics.
+    \item Drift remains bounded and operationally acceptable.
+    \item Multi-UAV asynchronous feeds do not compromise system stability.
+\end{itemize}
+These qualities make the pipeline good for use in real-world flood-response mapping, where speed and reliability are more important than perfect geometric accuracy.
+
+% \section{Experimental Evaluation and Results}
+
+% \subsection{Dataset Characteristics}
+% The system was validated using the NPU Drone Map Dataset.
+% \begin{itemize}
+%     \item \textbf{phantom3-village:} Static buildings, good GPS. Baseline for geometric accuracy.
+%     \item \textbf{gopro-npu:} Hexacopter over a river. Challenging due to specular reflections and moving water.
+% \end{itemize}
+
+% \subsection{Performance Metrics}
+% \subsubsection{Computational Throughput}
+% On a standard i7 workstation, the engine achieved $\approx 22$ FPS for a single drone and $\approx 16$ FPS for dual drones, exceeding typical telemetry rates (5-10Hz).
+
+% \subsubsection{Latency}
+% End-to-end latency was measured at 80-120ms (Network: 10-20ms, Warping/Pyramid: 40-60ms, Update: 10-20ms), falling within the real-time definition for human-in-the-loop decision making.
+
+% \subsection{Visual Quality Analysis}
+% \begin{itemize}
+%     \item \textbf{Seam Hiding:} Multi-Band Blending successfully smoothed exposure differences (e.g., bright rooftops vs. shadowed streets).
+%     \item \textbf{Ghosting:} In the \texttt{gopro-npu} sequence, the Max-Weight logic prevented double-exposures of waves, selecting a single ``truth'' for each pixel.
+%     \item \textbf{Geometric Drift:} While visually seamless, errors of 1-2 meters were observed in turns due to IMU inaccuracies. However, unlike feature-based SLAM which failed completely over water, the pose-based map remained contiguous and operationally usable.
+% \end{itemize}
+
+% Placeholder for Result Images
+% \begin{figure}[htbp]
+% \centering
+% \fbox{\parbox{0.9\linewidth}{\centering \vspace{2cm} [INSERT STITCHED MAP RESULT IMAGE HERE] \vspace{2cm}}}
+% \caption{Resulting orthomosaic from the phantom3-village dataset showing successful stitching over water.}
+% \label{fig:results}
+% \end{figure}
+
+\begin{figure}[ht!]
+    \centering
+    \includegraphics[width=0.95\columnwidth]{result.png}
+    \caption{Resulting orthomosaic from the phantom3-village dataset showing successful stitching.}
+    \label{fig:result}
+\end{figure}
+
+\begin{figure}[ht!]
+    \centering
+    \includegraphics[width=0.95\columnwidth]{multi.png}
+    \caption{Two drones independently map distinct spatial segments, fusing their warped frames into a unified global mosaic.}
+    \label{fig:multi}
+\end{figure}
+
+% \section{Challenges and Limitations}
+% \begin{itemize}
+%     \item \textbf{Flat Earth Assumption:} Assuming $Z=0$ causes relief displacement (leaning buildings) in urban areas.
+%     \item \textbf{Telemetry Dependence:} The system relies entirely on trajectory quality. GPS jamming or significant IMU drift correlates directly to map incoherence.
+%     \item \textbf{Memory Management:} Continuous operation requires an LRU cache mechanism to serialize old tiles to disk.
+% \end{itemize}
+
+% \section{Future Directions}
+% \begin{itemize}
+%     \item \textbf{GPU Acceleration:} Porting the pipeline to CUDA could increase throughput by 10-50x.
+%     \item \textbf{Semantic Layer Integration:} Integrating a MobileNet-UNet to classify Water, Ground, and Victims, stitched using the same homography engine.
+%     \item \textbf{Loop Closure:} A background sparse SLAM thread could detect loop closures and deform the grid to correct geometric drift.
+% \end{itemize}
+
+% \section{Conclusion}
+% This research demonstrates the viability of a Pose-Driven, Multi-Band Blending architecture for real-time flood mapping. By rejecting the fragility of feature-based alignment in favor of robust telemetry-based projection, the system solves the ``water problem'' and delivers a living map for first responders.
+
+\section{CHALLENGES AND LIMITATIONS}
+The suggested direct georeferencing pipeline can work in real time with a fixed level of performance, but it can only do so within certain geometric and hardware limits.
+
+\subsection{The Flat Earth Assumption}
+Images are projected onto a plane at $Z=0$ (or a fixed altitude offset) in the current implementation. Although this assumption works well for rural floodplains and open water bodies, it is incompatible with the geometry of vertical structures in urban settings.
+\begin{itemize}
+    \item \textbf{Relief Displacement:} Buildings and trees that are tall and far from the nadir point seem to "lean" outward. Because of this parallax effect, rooftops cannot be truly orthorectified, which could obscure ground-level details like the streets behind buildings.
+    \item \textbf{Terrain Variation:}The fixed-plane projection introduces localization errors proportionate to the deviation from the assumed ground plane in areas with substantial topographic relief (hills).
+\end{itemize}
+
+\subsection{Telemetry Dependence and Drift}
+This system is totally dependent on the accuracy of the onboard sensors, in contrast to SLAM, which uses visual feedback (Loop Closure) to correct trajectory errors.
+\begin{itemize}
+    \item \textbf{Sensor Noise:} The map is closely linked to the quality of the GNSS/IMU. A typical GPS positional variance of $2$ to $3$ meters leads to noticeable misalignments between stitching seams.
+    \item \textbf{Boresight Errors:} Minor static calibration errors in the camera mounting angle, known as boresight misalignment, become more significant at higher altitudes. A $1^{\circ}$ pitch error at $100$m altitude translates to a $\approx 1.7$m lateral shift, which cannot be corrected without visual optimization.
+\end{itemize}
+
+\subsection{Memory and I/O Bottlenecks}
+High-resolution aerial images use a lot of system RAM. Even though the sparse tiling hash map improves spatial access, a continuous 30-minute flight over large areas can fill up the memory of a standard edge device, like the Jetson Orin or Raspberry Pi.
+\begin{itemize}
+    \item \textbf{Cache Eviction:}inadequate. To free up RAM for active stitching, "cold" tiles—areas that are no longer in view—must be serialized to the SSD using a formal Least Recently Used (LRU) mechanism.
+\end{itemize}
+
+\section{FUTURE DIRECTIONS}
+The modular design of the current framework allows for meaningful extensions. The following developments are proposed to close the gap between a basic map and a smart situational awareness tool.
+
+\subsection{Deep Semantic Integration (The "Living" Map)}
+Understanding the scene content is where a flood map's ultimate usefulness lies. In the future, a lightweight segmentation network (like MobileNetV3-UNet) will be directly integrated into the feed pipeline.
+\begin{itemize}
+    \item \textbf{Class-Specific Layers:} Instead of a single RGB layer, the map will maintain semantic probability layers for classes such as \textit{Navigable Water}, \textit{Dry Ground}, and \textit{Vegetation}.
+    \item \textbf{Victim Localization:} A parallel object detection thread (YOLOv8-Nano) can scan incoming frames for humans or vehicles. In order to provide first responders with geolocated rescue targets in real-time, these detections would be projected using the current homography engine to drop "pins" on the global map.
+\end{itemize}
+
+\subsection{GPU Acceleration with CUDA}
+The current implementation depends on CPU-bound NumPy and OpenCV operations. Porting the warping and Laplacian blending steps to \textbf{CuPy} or \textbf{NVIDIA VPI} (Vision Programming Interface) would allow the system to:
+\begin{itemize}
+    \item Process 4K resolution streams at 30+ FPS.
+    \item Handle multi-drone inputs simultaneously on a single ground station.
+    \item Free up the CPU for the asynchronous handling of telemetry and network transmission.
+\end{itemize}
+
+\subsection{Hybrid Pose Graph Optimization}
+To fix the telemetry drift without the expense of full Bundle Adjustment, we can introduce a "Background SLAM" thread.
+\begin{itemize}
+    \item \textbf{Sparse Visual Anchors:} The system could extract features only at keyframes (e.g., every 5 seconds).
+    \item \textbf{Deformation Graph:} Upon detecting a loop closure, which means revisiting a known location, the system will optimize a Pose Graph. Instead of re-stitching the pixels, the grid coordinate system will be non-rigidly deformed to correct the drift. This is similar to the method used in sub-map joining.
+\end{itemize}
+
+\section{CONCLUSION}
+The crucial latency gap in aerial disaster response is the focus of this study. Rejecting the feature-dependency and computational overhead of conventional Structure-from-Motion and SLAM pipelines, we created a \textbf{Pose-Driven, Multi-Band Blending architecture} capable of generating seamless orthomosaics in real-time.
+
+By separating localization from perception, the system successfully resolves the "Water Problem"—the situation in which visual trackers fail over textureless surfaces. We accomplish a balance between geometric consistency and visual coherence by using Laplacian pyramid blending and direct georeferencing. Although there are still issues with sensor noise and terrain relief, the system offers instantaneous, useful geospatial data. It provides an essential tool for quick flood assessment and search-and-rescue operations by converting the UAV from a passive recording device into an active, intelligent mapping agent.
+
+\begin{thebibliography}{00}
+
+% ==========================
+% Core Inspiration — Map2DFusion
+% ==========================
+\bibitem{map2dfusion}
+Y. Li, X. Hu, H. Zhao, and Y. Wang, ``Map2DFusion: Real-time incremental UAV image mosaicing based on monocular SLAM,'' in \textit{2016 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)}, Daejeon, South Korea, 2016, pp. 5267--5274.
+
+% ==========================
+% SfM / Photogrammetry — Gold Standard
+% ==========================
+\bibitem{snavely2006photo}
+N. Snavely, S. M. Seitz, and R. Szeliski, ``Photo tourism: exploring photo collections in 3D,'' in \textit{ACM SIGGRAPH}, 2006, pp. 835--846.
+
+\bibitem{colmap}
+J. L. Schönberger and J.-M. Frahm, ``Structure-from-Motion Revisited,'' in \textit{CVPR}, 2016.
+
+\bibitem{odm}
+OpenDroneMap Community, ``OpenDroneMap: The Missing Guide,'' 2023. [Online]. Available: https://opendronemap.org/
+
+\bibitem{metashape}
+Agisoft LLC, ``Agisoft Metashape User Guide,'' 2022. [Online]. Available: https://www.agisoft.com/
+
+\bibitem{pix4d}
+Pix4D, ``Pix4D Mapper Technical Documentation,'' 2022.
+
+% ==========================
+% SLAM / VIO — Competitors
+% ==========================
+\bibitem{orbslam3}
+C. Campos et al., ``ORB-SLAM3: An Accurate Open-Source Library for Visual, Visual-Inertial, and Multi-Map SLAM,'' \textit{IEEE Transactions on Robotics}, vol. 37, no. 6, pp. 1874--1890, 2021.
+
+\bibitem{vinsmono}
+T. Qin, P. Li, and S. Shen, ``VINS-Mono,'' \textit{IEEE Transactions on Robotics}, vol. 34, no. 4, pp. 1004--1020, 2018.
+
+\bibitem{dso}
+J. Engel, V. Koltun, and D. Cremers, ``Direct Sparse Odometry,'' \textit{IEEE Transactions on Pattern Analysis and Machine Intelligence}, 2018.
+
+\bibitem{lsdslam}
+J. Engel, T. Schöps, and D. Cremers, ``LSD-SLAM: Large-Scale Direct Monocular SLAM,'' in \textit{ECCV}, 2014.
+
+% ==========================
+% Blending, Warping, and Image Fusion — Math Foundations
+% ==========================
+\bibitem{burt1983laplacian}
+P. Burt and E. Adelson, ``The Laplacian Pyramid as a Compact Image Code,'' \textit{IEEE Trans. Communications}, vol. 31, no. 4, pp. 532--540, 1983.
+
+\bibitem{szeliski2010computer}
+R. Szeliski, \textit{Computer Vision: Algorithms and Applications}. Springer, 2010.
+
+\bibitem{graphcut}
+V. Kwatra et al., ``Graphcut Textures: Image and Video Synthesis Using Graph Cuts,'' \textit{ACM SIGGRAPH}, 2003.
+
+\bibitem{brown2007autostitch}
+M. Brown and D. G. Lowe, ``Automatic Panoramic Image Stitching using Invariant Features,'' \textit{IJCV}, vol. 74, no. 1, pp. 59--73, 2007.
+
+\bibitem{milgram2004panorama}
+M. Milgram, ``Computer Mosaicing,'' Technical Report, NASA, 2004.
+
+% ==========================
+% Direct Georeferencing / Aerial Photogrammetry
+% ==========================
+\bibitem{honkavaara2006georeferencing}
+E. Honkavaara et al., ``Georeferencing and Orthoimage Processing of Airborne Photogrammetric Imagery,'' \textit{Photogrammetric Journal of Finland}, 2006.
+
+\bibitem{turner2014direct}
+D. Turner, A. Lucieer, and C. Watson, ``Development of an Unmanned Aerial Vehicle for Hyper-Resolution Vineyard Mapping,'' \textit{Remote Sensing}, 2011.
+
+\bibitem{li2008direct}
+Z. Li, J. Bethel, and C. McGlone, \textit{Manual of Photogrammetry}, 5th ed. ASPRS, 2008. (Direct georeferencing chapter)
+
+% ==========================
+% UAVs for Floods / Disaster Response
+% ==========================
+\bibitem{erdelj2017wireless}
+M. Erdelj, E. Natalizio, K. R. Chowdhury, and I. F. Akyildiz, ``Help from the sky: Leveraging UAVs for disaster management,'' \textit{IEEE Pervasive Computing}, vol. 16, no. 1, pp. 24--32, 2017.
+
+\bibitem{flood_challenges}
+S. E. Joyce et al., ``Satellite Remote Sensing for Natural Hazards,'' \textit{Progress in Physical Geography}, vol. 33, no. 2, 2009.
+
+\bibitem{uavfloodmapping}
+R. Feng, Q. Wu, and Y. Shi, ``UAV-Based Flood Monitoring: A Comprehensive Review,'' \textit{Remote Sensing}, vol. 13, no. 21, 2021.
+
+% ==========================
+% Multi-UAV Coordination, Coverage & Mapping
+% ==========================
+\bibitem{multiuav_survey}
+S. Hayat, E. Yanmaz, and R. Muzaffar, ``Survey on Unmanned Aerial Vehicle Networks for Civil Applications,'' \textit{IEEE Communications Surveys \& Tutorials}, 2016.
+
+\bibitem{coveragepathplanning}
+H. Almadhoun et al., ``A Survey on Coverage Path Planning for UAVs,'' \textit{Drones}, vol. 3, no. 4, 2019.
+
+\bibitem{coop_slam}
+L. C. Carrillo-Arce et al., ``Cooperative Stereo SLAM for Multi-UAV Systems,'' in \textit{ICRA}, 2013.
+
+\bibitem{uavmesh}
+A. Fotouhi et al., ``Survey on UAV Cellular Communications: Practical Challenges and Applications,'' \textit{IEEE Communications Surveys}, 2019.
+
+% ==========================
+% Real-Time Mosaicing and Panorama Systems
+% ==========================
+\bibitem{real_time_mosaic}
+S. Negahdaripour, ``On Phase-Based Methods for Motion Estimation and Image Mosaicing,'' \textit{CVIU}, 1998.
+
+\bibitem{uavstitching}
+B. R. Ferrer et al., ``Real-Time Aerial Video Mosaicking,'' \textit{IEEE Trans. Geoscience and Remote Sensing}, 2017.
+
+% ==========================
+% Learning-Based Homography, Segmentation, Mapping
+% ==========================
+\bibitem{deep_homography}
+D. DeTone, T. Malisiewicz, and A. Rabinovich, ``Deep Image Homography Estimation,'' in \textit{CVPR Workshops}, 2016.
+
+\bibitem{segformer}
+X. Xie et al., ``SegFormer: Simple and Efficient Design for Semantic Segmentation,'' \textit{NeurIPS}, 2021.
+
+\bibitem{unet}
+O. Ronneberger, P. Fischer, and T. Brox, ``U-Net: Convolutional Networks for Biomedical Image Segmentation,'' in \textit{MICCAI}, 2015.
+
+% ==========================
+% Disaster Robotics & UAV Autonomy
+% ==========================
+\bibitem{disaster_robotics}
+R. Murphy, \textit{Disaster Robotics}. MIT Press, 2014.
+
+\bibitem{uav_emerg}
+J. Chen et al., ``Emergency Communication Using UAV Swarms,'' \textit{IEEE Access}, 2019.
+
+% ==========================
+% Dataset Reference
+% ==========================
+\bibitem{npudataset}
+Y. Li, ``NPU Drone Map Dataset,'' Northwestern Polytechnical University, 2016. Available: https://github.com/Yuliang-Li/NPU-Drone-Map-Dataset
+
+\end{thebibliography}
+
+
+\end{document}
