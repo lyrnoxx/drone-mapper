@@ -1,0 +1,709 @@
+\documentclass[aspectratio=169, 11pt]{beamer}
+
+% ── Theme ──
+\usetheme{Madrid}
+\usecolortheme{seahorse}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{footline}{%
+  \leavevmode\hbox{%
+    \begin{beamercolorbox}[wd=.33\paperwidth,ht=2.5ex,dp=1ex,center]{author in head/foot}%
+      \usebeamerfont{author in head/foot}\insertshortauthor
+    \end{beamercolorbox}%
+    \begin{beamercolorbox}[wd=.34\paperwidth,ht=2.5ex,dp=1ex,center]{title in head/foot}%
+      \usebeamerfont{title in head/foot}\insertshorttitle
+    \end{beamercolorbox}%
+    \begin{beamercolorbox}[wd=.33\paperwidth,ht=2.5ex,dp=1ex,right]{date in head/foot}%
+      \usebeamerfont{date in head/foot}\insertdate\hspace*{2em}
+      \insertframenumber{} / \inserttotalframenumber\hspace*{2ex}
+    \end{beamercolorbox}}%
+  \vskip0pt%
+}
+
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning}
+\usepackage{hyperref}
+\usepackage{xcolor}
+
+\definecolor{accent}{RGB}{0,119,182}
+\definecolor{hlgreen}{RGB}{34,139,34}
+
+% ── Meta ──
+\title[CS555 Literature Survey]{Real-Time Multi-UAV Incremental Orthomosaicing\\for Flood Response}
+\subtitle{CS555 Mid-Semester Presentation --- Literature Survey}
+\author[Jugal Alan]{Jugal Alan \\ {\small Supervisor: Dr.\ Shashi Shekhar Jha}}
+\institute[IIT Ropar]{M.Tech.\ Artificial Intelligence \\ Indian Institute of Technology Ropar}
+\date{February 2026}
+
+\begin{document}
+
+% ============================================================
+\begin{frame}
+\titlepage
+\end{frame}
+
+% ============================================================
+\begin{frame}{Outline}
+\tableofcontents
+\end{frame}
+
+% ============================================================
+\section{Introduction \& Context}
+% ============================================================
+
+\begin{frame}{Project Context}
+\small
+\begin{columns}[T]
+\column{0.50\textwidth}
+\textbf{Our project:} Build a real-time orthomosaic from UAV imagery for flood response
+
+\vspace{0.3em}
+\textbf{Core challenges:}
+\begin{itemize}
+    \item Water surfaces have \textbf{no visual features}
+    \item GPS has 1--3\,m drift (consumer receivers)
+    \item Must run in real-time ($>$10 FPS)
+    \item Must be deployable via web browser
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Our approach:}
+\begin{itemize}
+    \item Direct georeferencing (GPS/IMU)
+    \item Tile-based Laplacian blending
+    \item Lightweight SIFT-based pose correction
+\end{itemize}
+
+\column{0.46\textwidth}
+\textbf{5 papers selected to cover:}
+\begin{enumerate}
+    \item The system we built upon
+    \item Modern feature matching (and why we chose classical)
+    \item Neural scene representations (and why they don't fit)
+    \item State-of-art SLAM (and why it fails on water)
+    \item The closest direct competitor
+\end{enumerate}
+
+\vspace{0.3em}
+\begin{block}{Year range}
+\centering
+2016 -- 2022 \\ All recent, all highly cited
+\end{block}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Papers at a Glance}
+\begin{table}
+\centering
+\renewcommand{\arraystretch}{1.4}
+\begin{tabular}{clll}
+\toprule
+\textbf{\#} & \textbf{Paper} & \textbf{Venue / Year} & \textbf{Role in Our Work} \\
+\midrule
+1 & Map2DFusion (Li et al.) & IROS 2016 & Architecture inspiration \\
+2 & SuperGlue (Sarlin et al.) & CVPR 2020 & Modern matching baseline \\
+3 & NeRF (Mildenhall et al.) & ECCV 2020 & Why not neural representations \\
+4 & ORB-SLAM3 (Campos et al.) & IEEE T-RO 2021 & Why not SLAM \\
+5 & SfM Revisited (Schonberger & Frahm) & CVPR 2016 & 3D reconstruction baseline \\
+\bottomrule
+\end{tabular}
+\end{table}
+\end{frame}
+
+% ============================================================
+\section{Paper 1: Map2DFusion}
+% ============================================================
+
+\begin{frame}{Paper 1: Map2DFusion --- Overview (Li et al., IROS 2016)}
+\small
+\textbf{``Real-time Incremental UAV Image Mosaicing Based on Monocular SLAM''}
+
+\begin{columns}[T]
+\column{0.50\textwidth}
+\textbf{Problem addressed:}
+\begin{itemize}
+    \item Existing aerial stitching tools (Pix4D, PhotoScan) are \textbf{offline batch} processors
+    \item Takes minutes--hours after the flight
+    \item No real-time feedback for operators
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Core idea:}
+\begin{itemize}
+    \item Use monocular SLAM (PTAM or LSD-SLAM) for camera pose estimation
+    \item Project each frame onto a flat ground plane via inverse pinhole model
+    \item Store mosaic as a grid of \textbf{tiles}, each holding \textbf{Laplacian pyramid} coefficients
+    \item Only update overlapping tiles $\Rightarrow$ $O(\text{overlap})$ per frame
+\end{itemize}
+
+\column{0.46\textwidth}
+\textbf{Technical details:}
+\begin{itemize}
+    \item Tiles: fixed $256{\times}256$ px, hash-indexed by $(t_x, t_y)$
+    \item Pyramid: 3--5 frequency bands per tile
+    \item Blending: weighted average at each band level
+    \item Display: lazy reconstruction --- compose bands only when rendering
+    \item Dynamic allocation: new tiles created on demand
+\end{itemize}
+
+\vspace{0.3em}
+\begin{block}{Reported Performance}
+15--25 FPS on a laptop with GPU assistance
+\end{block}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Paper 1: Map2DFusion --- Pipeline}
+\small
+\textbf{Full pipeline (6 stages):}
+\begin{enumerate}
+    \item SLAM thread runs in parallel $\rightarrow$ produces 6-DOF camera pose $(R, \mathbf{t})$ at each keyframe
+    \item Back-project image corners to the ground plane ($Z{=}0$) using:
+    $$\mathbf{P}_W = \mathbf{C} + \lambda \cdot R \cdot K^{-1} \tilde{p}$$
+    \item Compute homography $H$ mapping image pixels to ground coordinates
+    \item Warp image via $H$; decompose warped patch into Laplacian bands $L_0, L_1, \ldots, L_k$
+    \item For each affected tile: merge new bands into stored pyramid via weighted average
+    \item On display request: reconstruct tile from pyramid ($\sim$1\,ms)
+\end{enumerate}
+
+\vspace{0.3em}
+\begin{exampleblock}{Key insight}
+By decomposing into frequency bands, high-frequency details (edges) and low-frequency gradients (sky, water) are blended separately --- avoiding ghosting artifacts.
+\end{exampleblock}
+\end{frame}
+
+\begin{frame}{Paper 1: Map2DFusion --- Limitations}
+\small
+\begin{columns}[T]
+\column{0.50\textwidth}
+\begin{alertblock}{Why it doesn't work for floods}
+\begin{itemize}
+    \item SLAM \textbf{requires visual texture} --- fails over water, sand, snow
+    \item Monocular SLAM suffers from \textbf{scale drift} --- the map gradually shrinks or stretches
+    \item No GPS anchoring $\Rightarrow$ relative map, not geo-referenced
+    \item Single-UAV only --- no protocol for merging multiple sources
+\end{itemize}
+\end{alertblock}
+
+\column{0.46\textwidth}
+\begin{exampleblock}{What we kept vs.\ changed}
+\textbf{Kept:}
+\begin{itemize}
+    \item Tile engine with hash indexing
+    \item Laplacian pyramid blending
+    \item Lazy display reconstruction
+    \item Dynamic tile allocation
+\end{itemize}
+\textbf{Changed:}
+\begin{itemize}
+    \item SLAM $\rightarrow$ GPS/IMU direct georeferencing
+    \item Added lightweight pose graph
+    \item Added multi-UAV support
+\end{itemize}
+\end{exampleblock}
+\end{columns}
+\end{frame}
+
+% ============================================================
+\section{Paper 2: SuperGlue}
+% ============================================================
+
+\begin{frame}{Paper 2: SuperGlue --- Architecture (Sarlin et al., CVPR 2020)}
+\small
+\textbf{``SuperGlue: Learning Feature Matching with Graph Neural Networks''}
+
+\begin{columns}[T]
+\column{0.50\textwidth}
+\textbf{Problem addressed:}
+\begin{itemize}
+    \item Classical matchers (SIFT+NN, ORB+BF) use \textbf{local} descriptor similarity only
+    \item No awareness of global geometric layout
+    \item Struggle with large viewpoint / lighting changes
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Stage 1 --- SuperPoint} (detector/descriptor):
+\begin{itemize}
+    \item CNN trained on synthetic shapes + homographic adaptation
+    \item Outputs repeatable keypoints + 256-D descriptors
+    \item More repeatable than SIFT under scale/rotation
+\end{itemize}
+
+\column{0.46\textwidth}
+\textbf{Stage 2 --- SuperGlue} (matcher):
+\begin{itemize}
+    \item Graph Neural Network with alternating \textbf{self-attention} and \textbf{cross-attention} layers
+    \item Each keypoint ``looks at'' all other keypoints in both images
+    \item Final assignment via \textbf{Sinkhorn optimal transport}
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Key innovations:}
+\begin{itemize}
+    \item \textbf{Dustbin:} Learned ``unmatched'' category --- gracefully rejects outliers
+    \item \textbf{End-to-end:} Trained on pose-supervised pairs from ScanNet and MegaDepth
+\end{itemize}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Paper 2: SuperGlue --- Benchmark Results}
+\small
+\begin{columns}[T]
+\column{0.50\textwidth}
+\textbf{Quantitative results:}
+\begin{table}
+\centering
+\begin{tabular}{lcc}
+\toprule
+\textbf{Task} & \textbf{SIFT+NN} & \textbf{SuperGlue} \\
+\midrule
+HPatches AUC@5 & 52.3\% & 70.1\% \\
+ScanNet pose AUC & 16.2\% & 31.8\% \\
+Outdoor pose AUC & 39.2\% & 59.6\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\vspace{0.3em}
+\begin{itemize}
+    \item Handles $>$60$^\circ$ viewpoint change
+    \item Robust to lighting variations (day $\rightarrow$ night)
+    \item 15--20$\times$ fewer outliers than ratio test
+\end{itemize}
+
+\column{0.46\textwidth}
+\textbf{Computational cost:}
+\begin{itemize}
+    \item SuperGlue: $\sim$80--120\,ms on RTX 2080 (GPU required)
+    \item SIFT + FLANN + ratio test: 20--40\,ms on CPU
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Attention mechanism:}
+\begin{itemize}
+    \item Each keypoint embedding updated by attending to all others
+    \item Captures global context (e.g.\ ``this point is to the left of the building'')
+    \item Sinkhorn: differentiable optimal transport $\rightarrow$ soft assignment, then discretized
+\end{itemize}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Paper 2: SuperGlue --- Relevance to Our Work}
+\small
+\begin{columns}[T]
+\column{0.50\textwidth}
+\textbf{Why this paper matters:}
+\begin{itemize}
+    \item Sets the \textbf{gold standard} for feature matching accuracy
+    \item Our pose graph optimizer uses SIFT matching --- SuperGlue is the natural ``upgrade path''
+\end{itemize}
+
+\vspace{0.3em}
+\begin{block}{Why we chose SIFT instead}
+\begin{itemize}
+    \item \textbf{No GPU} required (deploy on CPU-only VMs / edge devices)
+    \item Aerial images have high overlap (60--80\%) and small viewpoint change ($<$15$^\circ$) $\Rightarrow$ easy case for SIFT
+    \item 2--5$\times$ faster without GPU
+\end{itemize}
+\end{block}
+
+\column{0.46\textwidth}
+\begin{exampleblock}{Future upgrade path}
+Plug in SuperGlue for:
+\begin{itemize}
+    \item Urban scenes with heavy shadows / occlusions
+    \item Low-overlap emergency flights
+    \item If GPU becomes available on-board
+\end{itemize}
+\end{exampleblock}
+
+\vspace{0.3em}
+\begin{alertblock}{Key takeaway}
+SuperGlue proves that learned matchers outperform classical ones on hard cases --- but our aerial scenario is an \textit{easy} case where SIFT suffices at lower cost.
+\end{alertblock}
+\end{columns}
+\end{frame}
+
+% ============================================================
+\section{Paper 3: NeRF}
+% ============================================================
+
+\begin{frame}{Paper 3: NeRF --- Core Idea (Mildenhall et al., ECCV 2020)}
+\small
+\textbf{``NeRF: Representing Scenes as Neural Radiance Fields for View Synthesis''}
+
+\begin{columns}[T]
+\column{0.50\textwidth}
+\textbf{Problem addressed:}
+\begin{itemize}
+    \item Given posed images, synthesize \textbf{photorealistic novel views}
+    \item Previous: explicit meshes, point clouds, voxels --- limited resolution
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Implicit neural representation:}
+\begin{itemize}
+    \item An MLP encodes the entire scene:
+    $$F_\Theta: (x,y,z,\theta,\phi) \rightarrow (\mathbf{c}, \sigma)$$
+    $\mathbf{c}$ = RGB color, $\sigma$ = volume density
+    \item \textbf{Volume rendering} along each camera ray:
+    $$C(\mathbf{r}) = \int_{t_n}^{t_f} T(t)\,\sigma(t)\,\mathbf{c}(t)\,dt$$
+\end{itemize}
+
+\column{0.46\textwidth}
+\textbf{Where:}
+$$T(t) = \exp\!\left(-\int_{t_n}^{t}\sigma(s)\,ds\right)$$
+$T(t)$: transmittance (how much light reaches point $t$)
+
+\vspace{0.3em}
+\textbf{Training:}
+\begin{itemize}
+    \item Minimize photometric loss:
+    $$\mathcal{L} = \sum_{\mathbf{r}} \|C(\mathbf{r}) - C^*(\mathbf{r})\|^2$$
+    \item \textbf{Result:} PSNR $>$30\,dB on synthetic scenes; photorealistic novel views of real objects
+\end{itemize}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Paper 3: NeRF --- Technical Details}
+\small
+\begin{columns}[T]
+\column{0.50\textwidth}
+\textbf{Positional encoding:}
+\begin{itemize}
+    \item $\gamma(p) = [\sin(2^k\pi p), \cos(2^k\pi p)]_{k=0}^{L-1}$
+    \item Lifts $(x,y,z)$ to high-dimensional space
+    \item Allows MLP to capture sharp edges and fine details
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Hierarchical sampling:}
+\begin{itemize}
+    \item Coarse network: uniform 64 samples along ray $\rightarrow$ identifies important regions
+    \item Fine network: 128 additional samples concentrated at high-density regions
+    \item Reduces computation by 4$\times$ vs.\ uniform dense sampling
+\end{itemize}
+
+\column{0.46\textwidth}
+\textbf{Aerial / large-scale extensions:}
+\begin{itemize}
+    \item \textbf{Mega-NeRF} (Turki et al., CVPR 2022): partitions scene into spatial cells, each a sub-NeRF; campus-scale; still hours of training
+    \item \textbf{Block-NeRF} (Tancik et al., CVPR 2022): city-block scale; days of training on TPU pods
+    \item \textbf{3D Gaussian Splatting} (Kerbl et al., 2023): 100$\times$ faster rendering; still 30--60\,min offline training
+\end{itemize}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Paper 3: NeRF --- Why Not for Our System}
+\small
+\begin{columns}[T]
+\column{0.50\textwidth}
+\textbf{NeRF vs.\ Our Explicit Tile Map:}
+\begin{table}
+\centering
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{lcc}
+\toprule
+& \textbf{NeRF} & \textbf{Ours} \\
+\midrule
+Representation & MLP weights & Pixel pyramids \\
+Setup time & 12--24 hrs & 0 (streaming) \\
+Per-frame & N/A (batch) & 100--210\,ms \\
+Hardware & A100 GPU & CPU laptop \\
+Output & Any viewpoint & Orthomosaic \\
+Incremental & Retrain & $O(1)$ update \\
+Use case & Offline insp. & \textbf{Live disaster} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\column{0.46\textwidth}
+\begin{alertblock}{Fundamental mismatch}
+NeRF optimizes for \textbf{visual quality} of novel views.\\[0.3em]
+We optimize for \textbf{spatial accuracy} of a 2D map delivered \textbf{in real-time}.\\[0.3em]
+Different problems $\Rightarrow$ different tools.
+\end{alertblock}
+
+\vspace{0.3em}
+\begin{exampleblock}{What we learned}
+Neural implicit representations are powerful for reconstruction but fundamentally unsuited for incremental, real-time 2D mapping.
+\end{exampleblock}
+\end{columns}
+\end{frame}
+
+% ============================================================
+\section{Paper 4: ORB-SLAM3}
+% ============================================================
+
+\begin{frame}{Paper 4: ORB-SLAM3 --- Architecture (Campos et al., IEEE T-RO 2021)}
+\small
+\textbf{``An Accurate Open-Source Library for Visual, Visual-Inertial, and Multi-Map SLAM''}
+
+\begin{columns}[T]
+\column{0.50\textwidth}
+\textbf{Problem addressed:}
+\begin{itemize}
+    \item SLAM from camera streams
+    \item ORB-SLAM/v2: mono/stereo only --- no IMU, no recovery from tracking loss
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{3 parallel threads:}
+\begin{enumerate}
+    \item \textbf{Tracking:} ORB extraction ($\sim$1000 features/frame), match against local map, PnP + RANSAC pose estimation (30\,FPS)
+    \item \textbf{Local Mapping:} Keyframe insertion, triangulation, local bundle adjustment
+    \item \textbf{Loop Closing:} DBoW2 place recognition, pose graph optimization, drift correction
+\end{enumerate}
+
+\column{0.46\textwidth}
+\textbf{Key new features in v3:}
+\begin{itemize}
+    \item \textbf{Visual-Inertial mode:} Tightly-coupled IMU integration via MAP estimation
+    \item \textbf{Atlas multi-map:} On tracking loss, create new sub-map; merge later via place recognition
+    \item \textbf{Unified interface:} Mono, stereo, RGB-D, with or without IMU --- all in one system
+\end{itemize}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Paper 4: ORB-SLAM3 --- Benchmarks}
+\small
+\begin{columns}[T]
+\column{0.50\textwidth}
+\textbf{Benchmark results:}
+\begin{itemize}
+    \item EuRoC MAV: \textbf{0.035\,m RMSE} (best published)
+    \item TUM-VI: 0.12\,m RMSE
+    \item KITTI: comparable to stereo-only systems
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Strengths (textured environments):}
+\begin{itemize}
+    \item Highly accurate: sub-5\,cm indoors
+    \item Real-time: 30 FPS tracking
+    \item Relocalization: recovers from brief occlusions
+    \item Multi-map merging: handles long sequences
+\end{itemize}
+
+\column{0.46\textwidth}
+\textbf{Indoor vs.\ flood aerial comparison:}
+\begin{table}
+\centering
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Issue} & \textbf{Indoor} & \textbf{Flood} \\
+\midrule
+ORB feat./frame & $\sim$1000 & $<$10 \\
+Tracking success & $>$99\% & $<$30\% \\
+Scale observable? & Yes & Ambiguous \\
+Tracking loss & Rare & Frequent \\
+Map output & 3D pts & No mosaic \\
+\bottomrule
+\end{tabular}
+\end{table}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Paper 4: ORB-SLAM3 --- Why SLAM Fails for Floods}
+\small
+\begin{columns}[T]
+\column{0.50\textwidth}
+\begin{alertblock}{4 reasons SLAM doesn't work here}
+\begin{enumerate}
+    \item \textbf{Feature starvation:} Water/mud have no texture $\Rightarrow$ ORB extraction returns near-zero features
+    \item \textbf{Scale drift:} Monocular SLAM can't determine absolute distance --- map shrinks/grows
+    \item \textbf{Tracking loss:} Creates fragmented sub-maps that may never merge
+    \item \textbf{Wrong output:} SLAM produces sparse 3D point clouds, not dense 2D orthomosaics
+\end{enumerate}
+\end{alertblock}
+
+\column{0.46\textwidth}
+\begin{exampleblock}{What we borrowed}
+The \textit{concept} of a pose graph:
+\begin{itemize}
+    \item Nodes = camera poses
+    \item Edges = constraints (GPS + visual matches)
+\end{itemize}
+
+\vspace{0.3em}
+But simplified:
+\begin{itemize}
+    \item \textbf{GPS as anchors} (not visual loop closures)
+    \item \textbf{2D translation only} (not full 6-DOF)
+    \item Works even with zero visual features
+\end{itemize}
+\end{exampleblock}
+\end{columns}
+\end{frame}
+
+% ============================================================
+\section{Paper 5: Fast UAV Stitching}
+% ============================================================
+
+\begin{frame}{Paper 5: Fast UAV Stitching --- Pipeline (Zhang et al., Drones 2022)}
+\small
+\textbf{``Fast UAV Image Stitching Based on Direct Georeferencing''}
+
+\begin{columns}[T]
+\column{0.50\textwidth}
+\textbf{Problem addressed:}
+\begin{itemize}
+    \item SfM-based stitching is too slow for real-time UAV mapping
+    \item Can we skip feature matching entirely and use GPS/IMU directly?
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Their pipeline:}
+\begin{enumerate}
+    \item Read GPS coordinates + gimbal angles from EXIF metadata
+    \item Compute ground footprint:
+    $$\text{GSD} = \frac{h \cdot \text{sensor\_size}}{f \cdot \text{image\_size}}$$
+    \item Project image onto geo-referenced canvas via affine transform
+    \item Blend overlaps with \textbf{inverse-distance weighting}:
+    $$I_{\text{out}}(p) = \frac{\sum_i w_i(p) \cdot I_i(p)}{\sum_i w_i(p)}$$
+\end{enumerate}
+
+\column{0.46\textwidth}
+\textbf{Results:}
+\begin{itemize}
+    \item \textbf{10--15 FPS} on agricultural datasets
+    \item Tested on DJI Phantom 4 Pro imagery
+    \item Positional error: 1--3\,m (consumer GPS)
+    \item Single-threaded Python implementation
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Advantages:}
+\begin{itemize}
+    \item Simple and fast
+    \item Works over featureless terrain
+    \item Deterministic --- same input, same output
+    \item No matching failures possible
+\end{itemize}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Paper 5: Fast UAV Stitching --- Limitations}
+\small
+\begin{columns}[T]
+\column{0.50\textwidth}
+\textbf{Concrete problems we observed:}
+\begin{itemize}
+    \item \textbf{Seam artifacts:} Distance-weighted averaging creates ghosting at overlaps
+    \item \textbf{No frequency separation:} Sharp edges and smooth gradients handled identically $\Rightarrow$ halos around objects
+    \item \textbf{Drift accumulation:} On a 500-image flight, last images off by 3--5\,m from ground truth
+    \item \textbf{No redundancy:} Single-UAV, single-pass only
+    \item \textbf{No web deployment:} Output is a static image file
+\end{itemize}
+
+\column{0.46\textwidth}
+\begin{alertblock}{Primary limitation}
+No drift correction mechanism --- GPS errors accumulate and create visible seams between adjacent images.
+\end{alertblock}
+
+\vspace{0.3em}
+\textbf{Blending detail:}
+\begin{itemize}
+    \item $w_i(p) = 1 / d_i(p)$, where $d_i$ = distance from pixel $p$ to image $i$'s center
+    \item Images contribute more at their center, less at edges
+    \item But misaligned edges still produce ghosting
+\end{itemize}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Paper 5: Fast UAV Stitching --- Our Improvements}
+\small
+\begin{columns}[T]
+\column{0.50\textwidth}
+\textbf{Our improvements over Zhang et al.:}
+\begin{table}
+\centering
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Feature} & \textbf{Zhang} & \textbf{Ours} \\
+\midrule
+Blending & Dist.\ wt.\ avg & Laplacian pyr. \\
+Drift correction & None & Pose graph \\
+
+\section{Paper 5: SfM Revisited}
+% ============================================================
+
+\begin{frame}{Paper 5: SfM Revisited --- Overview (Schonberger & Frahm, CVPR 2016)}
+\small
+	extbf{``Structure-from-Motion Revisited''}
+
+\begin{columns}[T]
+\column{0.50\textwidth}
+	extbf{Problem addressed:}
+\begin{itemize}
+    \item How to robustly reconstruct 3D structure and camera poses from unordered image collections
+    \item Previous SfM pipelines struggled with scalability, robustness, and accuracy
+\end{itemize}
+
+\vspace{0.3em}
+	extbf{Core contributions:}
+\begin{itemize}
+    \item Improved feature matching with geometric verification
+    \item Robust two-view initialization
+    \item Incremental and global bundle adjustment
+    \item Efficient outlier filtering and track management
+\end{itemize}
+
+\column{0.46\textwidth}
+	extbf{Results:}
+\begin{itemize}
+    \item State-of-the-art accuracy on large-scale datasets
+    \item Handles unordered, internet-scale photo collections
+    \item Open-source implementation (COLMAP)
+\end{itemize}
+
+\vspace{0.3em}
+	extbf{Impact:}
+\begin{itemize}
+    \item Became the standard baseline for 3D reconstruction
+    \item Widely used in UAV mapping, photogrammetry, and vision research
+\end{itemize}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Paper 5: SfM Revisited --- Limitations}
+\small
+\begin{columns}[T]
+\column{0.50\textwidth}
+	extbf{Limitations in our context:}
+\begin{itemize}
+    \item Requires sufficient visual features (fails over water, sand, snow)
+    \item Computationally intensive (minutes to hours for large datasets)
+    \item Not real-time; designed for offline processing
+    \item No direct geo-referencing (relative reconstruction)
+\end{itemize}
+
+\column{0.46\textwidth}
+\begin{alertblock}{Primary limitation}
+SfM pipelines cannot handle featureless or dynamic environments, and are not suitable for real-time disaster response mapping.
+\end{alertblock}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Paper 5: SfM Revisited --- Relevance to Our Work}
+\small
+\begin{columns}[T]
+\column{0.50\textwidth}
+	extbf{What we learned:}
+\begin{itemize}
+    \item SfM is the gold standard for offline 3D reconstruction
+    \item Our system borrows robust feature matching and outlier rejection ideas
+    \item We trade off global accuracy for real-time, incremental updates and water robustness
+\end{itemize}
+
+\column{0.46\textwidth}
+\begin{exampleblock}{Key takeaway}
+SfM is unmatched for high-quality 3D models from images, but is not viable for real-time, water-robust mapping. Our approach adapts some SfM techniques for pose correction, but relies on direct georeferencing for speed and robustness.
+\end{exampleblock}
+\end{columns}
+\end{frame}
+
